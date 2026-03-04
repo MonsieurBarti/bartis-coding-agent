@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ContextConfigSchema } from "./context";
 
-export const NodeType = z.enum(["deterministic", "agent", "git-setup", "ci-gate"]);
+export const NodeType = z.enum(["deterministic", "agent", "git-setup", "ci-gate", "understand"]);
 
 export const BlueprintNodeSchema = z.discriminatedUnion("type", [
   z.object({
@@ -28,6 +28,13 @@ export const BlueprintNodeSchema = z.discriminatedUnion("type", [
     test: z.string(),
     autofix: z.string(),
     maxRounds: z.number().int().min(1).max(10).default(2),
+    deps: z.array(z.string()).default([]),
+  }),
+  z.object({
+    type: z.literal("understand"),
+    task: z.string(),
+    context: ContextConfigSchema,
+    planFile: z.string(),
     deps: z.array(z.string()).default([]),
   }),
 ]);

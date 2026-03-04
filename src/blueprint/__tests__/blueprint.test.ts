@@ -1,9 +1,11 @@
 import { describe, test, expect } from "bun:test";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import {
   BlueprintSchema,
   parseBlueprint,
   topoSort,
   execute,
+  buildUnderstandPrompt,
   CycleError,
   type Blueprint,
   type CodeGraphExecutor,
@@ -507,5 +509,247 @@ nodes:
     expect(result.success).toBe(true);
     expect(result.states.get("build")!.status).toBe("success");
     expect(result.states.get("gate")!.status).toBe("success");
+  });
+});
+
+describe("understand node", () => {
+  const planDir = `/tmp/bca-understand-test-${Date.now()}`;
+
+  test("parses understand node from YAML", () => {
+    const bp = parseBlueprint(`
+name: understand-test
+nodes:
+  analyze:
+    type: understand
+    task: "Add user authentication"
+    context:
+      queries:
+        - kind: stats
+        - kind: structure
+          path: src
+    planFile: plan.md
+`);
+    const node = bp.nodes.analyze;
+    expect(node.type).toBe("understand");
+    if (node.type === "understand") {
+      expect(node.task).toBe("Add user authentication");
+      expect(node.context.queries).toHaveLength(2);
+      expect(node.planFile).toBe("plan.md");
+    }
+  });
+
+  test("rejects understand node without context", () => {
+    expect(() =>
+      parseBlueprint(`
+name: bad-understand
+nodes:
+  analyze:
+    type: understand
+    task: "Do something"
+    planFile: plan.md
+`),
+    ).toThrow();
+  });
+
+  test("rejects understand node without planFile", () => {
+    expect(() =>
+      parseBlueprint(`
+name: bad-understand
+nodes:
+  analyze:
+    type: understand
+    task: "Do something"
+    context:
+      queries:
+        - kind: stats
+`),
+    ).toThrow();
+  });
+
+  test("executes understand node and writes plan file", async () => {
+    const planFile = `${planDir}/plan.md`;
+    const bp: Blueprint = {
+      name: "understand-exec",
+      nodes: {
+        analyze: {
+          type: "understand",
+          task: "Implement caching layer",
+          context: {
+            queries: [{ kind: "stats" }],
+          },
+          planFile,
+          deps: [],
+        },
+      },
+    };
+
+    const mockExecutor: CodeGraphExecutor = {
+      async execute(query: ContextQuery) {
+        if (query.kind === "stats") return "Files: 42\nSymbols: 200";
+        return "";
+      },
+    };
+
+    try {
+      const result = await execute(bp, {
+        codeGraphExecutor: mockExecutor,
+        projectPath: "/test",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.states.get("analyze")!.status).toBe("success");
+      expect(existsSync(planFile)).toBe(true);
+    } finally {
+      rmSync(planDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fires onContextAssembled and onPlanWritten events", async () => {
+    const planFile = `${planDir}/events-plan.md`;
+    const bp: Blueprint = {
+      name: "understand-events",
+      nodes: {
+        analyze: {
+          type: "understand",
+          task: "Add logging",
+          context: {
+            queries: [{ kind: "stats" }],
+          },
+          planFile,
+          deps: [],
+        },
+      },
+    };
+
+    const mockExecutor: CodeGraphExecutor = {
+      async execute() {
+        return "Files: 5";
+      },
+    };
+
+    let contextFired = false;
+    let planFired = false;
+    let planPath = "";
+
+    try {
+      await execute(bp, {
+        codeGraphExecutor: mockExecutor,
+        projectPath: "/test",
+        events: {
+          onContextAssembled: () => {
+            contextFired = true;
+          },
+          onPlanWritten: (_id, path) => {
+            planFired = true;
+            planPath = path;
+          },
+        },
+      });
+
+      expect(contextFired).toBe(true);
+      expect(planFired).toBe(true);
+      expect(planPath).toBe(planFile);
+    } finally {
+      rmSync(planDir, { recursive: true, force: true });
+    }
+  });
+
+  test("understand node works in pipeline with deps", async () => {
+    const planFile = `${planDir}/deps-plan.md`;
+    const bp: Blueprint = {
+      name: "understand-deps",
+      nodes: {
+        setup: {
+          type: "deterministic",
+          command: "echo setup",
+          deps: [],
+          cleanup: false,
+        },
+        analyze: {
+          type: "understand",
+          task: "Refactor auth module",
+          context: {
+            queries: [{ kind: "stats" }],
+          },
+          planFile,
+          deps: ["setup"],
+        },
+      },
+    };
+
+    const mockExecutor: CodeGraphExecutor = {
+      async execute() {
+        return "Files: 10";
+      },
+    };
+
+    try {
+      const result = await execute(bp, {
+        codeGraphExecutor: mockExecutor,
+        projectPath: "/test",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.states.get("setup")!.status).toBe("success");
+      expect(result.states.get("analyze")!.status).toBe("success");
+    } finally {
+      rmSync(planDir, { recursive: true, force: true });
+    }
+  });
+
+  test("understand node is skipped when dep fails", async () => {
+    const bp: Blueprint = {
+      name: "understand-skip",
+      nodes: {
+        bad: {
+          type: "deterministic",
+          command: "exit 1",
+          deps: [],
+          cleanup: false,
+        },
+        analyze: {
+          type: "understand",
+          task: "Some task",
+          context: {
+            queries: [{ kind: "stats" }],
+          },
+          planFile: `${planDir}/skip-plan.md`,
+          deps: ["bad"],
+        },
+      },
+    };
+
+    const result = await execute(bp);
+    expect(result.states.get("bad")!.status).toBe("failure");
+    expect(result.states.get("analyze")!.status).toBe("skipped");
+  });
+});
+
+describe("buildUnderstandPrompt", () => {
+  test("includes context and task", () => {
+    const assembled: AssembledContext = {
+      results: [{ query: { kind: "stats" }, output: "Files: 10" }],
+      text: "# Codebase Context\n\n## Project Stats\nFiles: 10",
+    };
+
+    const prompt = buildUnderstandPrompt("Add user auth", assembled);
+    expect(prompt).toContain("# Codebase Context");
+    expect(prompt).toContain("Files: 10");
+    expect(prompt).toContain("# Task");
+    expect(prompt).toContain("Add user auth");
+    expect(prompt).toContain("# Instructions");
+    expect(prompt).toContain("Implementation steps");
+  });
+
+  test("works with empty context", () => {
+    const assembled: AssembledContext = {
+      results: [],
+      text: "",
+    };
+
+    const prompt = buildUnderstandPrompt("Fix bug", assembled);
+    expect(prompt).not.toContain("# Codebase Context");
+    expect(prompt).toContain("# Task");
+    expect(prompt).toContain("Fix bug");
   });
 });

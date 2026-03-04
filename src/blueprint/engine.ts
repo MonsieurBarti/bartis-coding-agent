@@ -1,5 +1,6 @@
 import { parse as parseYaml } from "yaml";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { BlueprintSchema, type Blueprint, type NodeState } from "./schema";
 import { topoSort } from "./topo";
 import {
@@ -13,6 +14,7 @@ export interface EngineEvents {
   onNodeStart?: (id: string, node: NodeState) => void;
   onNodeEnd?: (id: string, node: NodeState) => void;
   onContextAssembled?: (id: string, context: AssembledContext) => void;
+  onPlanWritten?: (id: string, planFile: string, plan: string) => void;
 }
 
 export interface EngineOptions {
@@ -103,6 +105,21 @@ export async function execute(
         await runGitSetup(node.branch, node.baseBranch, node.worktree);
       } else if (node.type === "ci-gate") {
         await runCiGate(node.test, node.autofix, node.maxRounds, state);
+      } else if (node.type === "understand") {
+        const executor = codeGraphExecutor ?? new SubprocessExecutor();
+        const resolvedPath = projectPath ?? process.cwd();
+        const assembled = await assembleContext(
+          node.context,
+          resolvedPath,
+          executor,
+        );
+        events?.onContextAssembled?.(id, assembled);
+        const plan = await runUnderstand(
+          node.task,
+          assembled,
+          node.planFile,
+        );
+        events?.onPlanWritten?.(id, node.planFile, plan);
       } else {
         // Agent node — assemble context if configured
         let prompt = node.prompt;
@@ -224,8 +241,60 @@ async function runCiGate(
   }
 }
 
+/**
+ * Run an understand node: build a plan prompt from task + assembled context,
+ * invoke the agent, and write the plan file.
+ *
+ * The agent receives the codebase context and task description, then produces
+ * a structured plan. The plan is written to planFile for downstream nodes.
+ */
+async function runUnderstand(
+  task: string,
+  assembled: AssembledContext,
+  planFile: string,
+): Promise<string> {
+  const prompt = buildUnderstandPrompt(task, assembled);
+  const plan = await runAgent(prompt);
+  await mkdir(dirname(planFile), { recursive: true });
+  await writeFile(planFile, plan, "utf-8");
+  return plan;
+}
+
+/**
+ * Build the prompt for an understand node.
+ * Combines pre-hydrated codebase context with the task description
+ * and instructions to produce a structured implementation plan.
+ */
+export function buildUnderstandPrompt(
+  task: string,
+  assembled: AssembledContext,
+): string {
+  const sections: string[] = [];
+
+  if (assembled.text) {
+    sections.push(assembled.text);
+  }
+
+  sections.push(`# Task\n\n${task}`);
+
+  sections.push(`# Instructions
+
+Analyze the task above using the codebase context provided. Produce a structured
+implementation plan that includes:
+
+1. **Summary**: One-paragraph overview of what needs to change
+2. **Files to modify**: List each file with a brief description of changes
+3. **Files to create**: List any new files needed
+4. **Implementation steps**: Ordered list of concrete steps
+5. **Testing strategy**: How to verify the implementation works
+6. **Risks and open questions**: Anything that needs clarification`);
+
+  return sections.join("\n\n");
+}
+
 /** Stub for agent node execution. Will invoke Pi SDK later. */
-async function runAgent(_prompt: string): Promise<void> {
+async function runAgent(_prompt: string): Promise<string> {
   // TODO: invoke Pi SDK agent loop
-  // For now, agent nodes always succeed
+  // For now, agent nodes return empty plan
+  return "";
 }
