@@ -6,6 +6,9 @@ import {
   execute,
   CycleError,
   type Blueprint,
+  type CodeGraphExecutor,
+  type ContextQuery,
+  type AssembledContext,
 } from "../index";
 
 const SIMPLE_YAML = `
@@ -100,8 +103,8 @@ nodes:
     const bp: Blueprint = {
       name: "cyclic",
       nodes: {
-        a: { type: "deterministic", command: "echo a", deps: ["b"] },
-        b: { type: "deterministic", command: "echo b", deps: ["a"] },
+        a: { type: "deterministic", command: "echo a", deps: ["b"], cleanup: false },
+        b: { type: "deterministic", command: "echo b", deps: ["a"], cleanup: false },
       },
     };
     expect(() => topoSort(bp)).toThrow(CycleError);
@@ -111,7 +114,7 @@ nodes:
     const bp: Blueprint = {
       name: "bad-dep",
       nodes: {
-        a: { type: "deterministic", command: "echo a", deps: ["missing"] },
+        a: { type: "deterministic", command: "echo a", deps: ["missing"], cleanup: false },
       },
     };
     expect(() => topoSort(bp)).toThrow(/unknown node "missing"/);
@@ -279,6 +282,101 @@ nodes:
     expect(state.status).toBe("failure");
     expect(state.error).toContain("exit 42");
     expect(state.error).toContain("boom");
+  });
+
+  test("backward compat: accepts events as second argument", async () => {
+    const bp = parseBlueprint(`
+name: compat
+nodes:
+  a:
+    type: deterministic
+    command: "echo compat"
+`);
+    const log: string[] = [];
+    const result = await execute(bp, {
+      onNodeStart: (id) => log.push(`start:${id}`),
+      onNodeEnd: (id) => log.push(`end:${id}`),
+    });
+    expect(result.success).toBe(true);
+    expect(log).toEqual(["start:a", "end:a"]);
+  });
+
+  test("assembles context before agent node", async () => {
+    const bp: Blueprint = {
+      name: "context-test",
+      nodes: {
+        think: {
+          type: "agent",
+          prompt: "Think about the code",
+          deps: [],
+          context: {
+            queries: [{ kind: "stats" }],
+          },
+        },
+      },
+    };
+
+    const mockExecutor: CodeGraphExecutor = {
+      async execute(query: ContextQuery) {
+        if (query.kind === "stats") return "Files: 10\nSymbols: 50";
+        return "";
+      },
+    };
+
+    let assembledCtx: AssembledContext | undefined;
+    const result = await execute(bp, {
+      codeGraphExecutor: mockExecutor,
+      projectPath: "/test",
+      events: {
+        onContextAssembled: (_id, ctx) => {
+          assembledCtx = ctx;
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(assembledCtx).toBeDefined();
+    expect(assembledCtx!.text).toContain("Project Stats");
+    expect(assembledCtx!.text).toContain("Files: 10");
+    expect(assembledCtx!.results).toHaveLength(1);
+  });
+
+  test("agent nodes without context still work", async () => {
+    const bp = parseBlueprint(`
+name: no-context
+nodes:
+  agent:
+    type: agent
+    prompt: "Do something"
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+  });
+
+  test("parses agent node with context from YAML", () => {
+    const bp = parseBlueprint(`
+name: with-context
+nodes:
+  analyze:
+    type: agent
+    prompt: "Analyze the code"
+    context:
+      queries:
+        - kind: stats
+        - kind: structure
+          path: src
+          depth: 2
+        - kind: file_summary
+          path: src/index.ts
+`);
+    const node = bp.nodes.analyze;
+    expect(node.type).toBe("agent");
+    if (node.type === "agent") {
+      expect(node.context).toBeDefined();
+      expect(node.context!.queries).toHaveLength(3);
+      expect(node.context!.queries[0].kind).toBe("stats");
+      expect(node.context!.queries[1].kind).toBe("structure");
+    }
   });
 });
 

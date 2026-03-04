@@ -17,3 +17,4 @@ node_modules/
 .claude/commands/
 .logs/
 tsconfig.tsbuildinfo
+.code-graph/
