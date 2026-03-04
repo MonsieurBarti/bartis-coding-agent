@@ -71,6 +71,8 @@ export async function execute(
     try {
       if (node.type === "deterministic") {
         await runDeterministic(node.command);
+      } else if (node.type === "git-setup") {
+        await runGitSetup(node.branch, node.baseBranch, node.worktree);
       } else {
         await runAgent(node.prompt);
       }
@@ -101,6 +103,39 @@ async function runDeterministic(command: string): Promise<void> {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(
       `Command failed (exit ${exitCode}): ${command}${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+    );
+  }
+}
+
+/**
+ * Create a feature branch and optionally set up a git worktree.
+ * Deterministic — no LLM needed.
+ */
+async function runGitSetup(
+  branch: string,
+  baseBranch: string,
+  worktree?: string,
+): Promise<void> {
+  await git(["fetch", "origin", baseBranch]);
+
+  if (worktree) {
+    await git(["worktree", "add", "-b", branch, worktree, `origin/${baseBranch}`]);
+  } else {
+    await git(["checkout", "-b", branch, `origin/${baseBranch}`]);
+  }
+}
+
+/** Run a git command. Throws on non-zero exit. */
+async function git(args: string[]): Promise<void> {
+  const proc = Bun.spawn(["git", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(
+      `git ${args[0]} failed (exit ${exitCode})${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
     );
   }
 }

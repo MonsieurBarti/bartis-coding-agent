@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const NodeType = z.enum(["deterministic", "agent"]);
+export const NodeType = z.enum(["deterministic", "agent", "git-setup"]);
 
 export const BlueprintNodeSchema = z.discriminatedUnion("type", [
   z.object({
@@ -11,6 +11,13 @@ export const BlueprintNodeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent"),
     prompt: z.string(),
+    deps: z.array(z.string()).default([]),
+  }),
+  z.object({
+    type: z.literal("git-setup"),
+    branch: z.string(),
+    baseBranch: z.string().default("main"),
+    worktree: z.string().optional(),
     deps: z.array(z.string()).default([]),
   }),
 ]);
