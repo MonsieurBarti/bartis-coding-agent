@@ -175,6 +175,97 @@ nodes:
     expect(result.states.get("think")!.status).toBe("success");
   });
 
+  test("cleanup node runs when dependency fails", async () => {
+    const bp = parseBlueprint(`
+name: cleanup-on-fail
+nodes:
+  build:
+    type: deterministic
+    command: "exit 1"
+  teardown:
+    type: deterministic
+    command: "echo cleaned"
+    deps: [build]
+    cleanup: true
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    expect(result.states.get("build")!.status).toBe("failure");
+    expect(result.states.get("teardown")!.status).toBe("success");
+  });
+
+  test("cleanup node runs when dependency succeeds", async () => {
+    const bp = parseBlueprint(`
+name: cleanup-on-success
+nodes:
+  build:
+    type: deterministic
+    command: "echo built"
+  teardown:
+    type: deterministic
+    command: "echo cleaned"
+    deps: [build]
+    cleanup: true
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+    expect(result.states.get("build")!.status).toBe("success");
+    expect(result.states.get("teardown")!.status).toBe("success");
+  });
+
+  test("cleanup node runs when transitive dependency is skipped", async () => {
+    const bp = parseBlueprint(`
+name: cleanup-transitive
+nodes:
+  first:
+    type: deterministic
+    command: "exit 1"
+  second:
+    type: deterministic
+    command: "echo skipped"
+    deps: [first]
+  teardown:
+    type: deterministic
+    command: "echo cleaned"
+    deps: [second]
+    cleanup: true
+`);
+    const result = await execute(bp);
+    expect(result.states.get("first")!.status).toBe("failure");
+    expect(result.states.get("second")!.status).toBe("skipped");
+    expect(result.states.get("teardown")!.status).toBe("success");
+  });
+
+  test("non-cleanup node still skips on dep failure", async () => {
+    const bp = parseBlueprint(`
+name: no-cleanup-skip
+nodes:
+  bad:
+    type: deterministic
+    command: "exit 1"
+  normal:
+    type: deterministic
+    command: "echo should-not-run"
+    deps: [bad]
+`);
+    const result = await execute(bp);
+    expect(result.states.get("normal")!.status).toBe("skipped");
+  });
+
+  test("cleanup defaults to false", () => {
+    const bp = parseBlueprint(`
+name: default-cleanup
+nodes:
+  a:
+    type: deterministic
+    command: echo hi
+`);
+    const node = bp.nodes.a;
+    if (node.type === "deterministic") {
+      expect(node.cleanup).toBe(false);
+    }
+  });
+
   test("captures error message on failure", async () => {
     const bp = parseBlueprint(`
 name: err-capture
