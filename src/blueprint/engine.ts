@@ -59,7 +59,10 @@ export async function execute(
       return depStatus === "failure" || depStatus === "skipped";
     });
 
-    if (depsFailed) {
+    // Cleanup nodes always run, even when dependencies failed
+    const isCleanup = node.type === "deterministic" && node.cleanup;
+
+    if (depsFailed && !isCleanup) {
       state.status = "skipped";
       events?.onNodeEnd?.(id, state);
       continue;
@@ -98,9 +101,12 @@ async function runDeterministic(command: string): Promise<void> {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const exitCode = await proc.exited;
+  const [exitCode, , stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
     throw new Error(
       `Command failed (exit ${exitCode}): ${command}${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
     );

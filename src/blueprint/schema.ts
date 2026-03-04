@@ -7,6 +7,7 @@ export const BlueprintNodeSchema = z.discriminatedUnion("type", [
     type: z.literal("deterministic"),
     command: z.string(),
     deps: z.array(z.string()).default([]),
+    cleanup: z.boolean().default(false),
   }),
   z.object({
     type: z.literal("agent"),
