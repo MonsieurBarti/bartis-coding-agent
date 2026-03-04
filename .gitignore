@@ -3,6 +3,9 @@
 .dolt/
 *.db
 
+# Build artifacts
+tsconfig.tsbuildinfo
+
 # Dependencies
 node_modules/
 
