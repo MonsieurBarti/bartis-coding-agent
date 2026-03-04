@@ -18,5 +18,19 @@ export {
   parseBlueprint,
   loadBlueprint,
   type EngineEvents,
+  type EngineOptions,
   type EngineResult,
 } from "./engine";
+
+export {
+  ContextQueryKind,
+  ContextQuerySchema,
+  ContextConfigSchema,
+  assembleContext,
+  SubprocessExecutor,
+  type ContextQuery,
+  type ContextConfig,
+  type CodeGraphExecutor,
+  type QueryResult,
+  type AssembledContext,
+} from "./context";

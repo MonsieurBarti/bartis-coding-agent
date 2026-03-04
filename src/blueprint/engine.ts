@@ -2,10 +2,25 @@ import { parse as parseYaml } from "yaml";
 import { readFile } from "node:fs/promises";
 import { BlueprintSchema, type Blueprint, type NodeState } from "./schema";
 import { topoSort } from "./topo";
+import {
+  assembleContext,
+  SubprocessExecutor,
+  type CodeGraphExecutor,
+  type AssembledContext,
+} from "./context";
 
 export interface EngineEvents {
   onNodeStart?: (id: string, node: NodeState) => void;
   onNodeEnd?: (id: string, node: NodeState) => void;
+  onContextAssembled?: (id: string, context: AssembledContext) => void;
+}
+
+export interface EngineOptions {
+  events?: EngineEvents;
+  /** Project root path for code-graph queries. Required if any agent node has context. */
+  projectPath?: string;
+  /** Override the code-graph executor (default: SubprocessExecutor). */
+  codeGraphExecutor?: CodeGraphExecutor;
 }
 
 export interface EngineResult {
@@ -33,11 +48,21 @@ export async function loadBlueprint(path: string): Promise<Blueprint> {
 /**
  * Execute a blueprint: run nodes in topological order,
  * skip downstream nodes when a dependency fails.
+ *
+ * Agent nodes with `context` config get code-graph queries
+ * assembled and prepended to their prompt before execution.
  */
 export async function execute(
   blueprint: Blueprint,
-  events?: EngineEvents,
+  optionsOrEvents?: EngineOptions | EngineEvents,
 ): Promise<EngineResult> {
+  // Support legacy (events-only) and new (options) signatures
+  const options: EngineOptions =
+    optionsOrEvents && ("events" in optionsOrEvents || "projectPath" in optionsOrEvents || "codeGraphExecutor" in optionsOrEvents)
+      ? optionsOrEvents as EngineOptions
+      : { events: optionsOrEvents as EngineEvents | undefined };
+
+  const { events, projectPath, codeGraphExecutor } = options;
   const order = topoSort(blueprint);
 
   const states = new Map<string, NodeState>();
@@ -76,10 +101,25 @@ export async function execute(
         await runDeterministic(node.command);
       } else if (node.type === "git-setup") {
         await runGitSetup(node.branch, node.baseBranch, node.worktree);
-      } else if (node.type === "agent") {
-        await runAgent(node.prompt);
       } else if (node.type === "ci-gate") {
         await runCiGate(node.test, node.autofix, node.maxRounds, state);
+      } else {
+        // Agent node — assemble context if configured
+        let prompt = node.prompt;
+        if (node.context) {
+          const executor = codeGraphExecutor ?? new SubprocessExecutor();
+          const resolvedPath = projectPath ?? process.cwd();
+          const assembled = await assembleContext(
+            node.context,
+            resolvedPath,
+            executor,
+          );
+          events?.onContextAssembled?.(id, assembled);
+          if (assembled.text) {
+            prompt = `${assembled.text}\n\n${prompt}`;
+          }
+        }
+        await runAgent(prompt);
       }
       state.status = "success";
     } catch (err: unknown) {
