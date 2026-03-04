@@ -15,6 +15,8 @@ export const BlueprintNodeSchema = z.discriminatedUnion("type", [
     prompt: z.string(),
     deps: z.array(z.string()).default([]),
     context: ContextConfigSchema.optional(),
+    /** Max feedback iterations (agent run + lint/typecheck check). Default 3. */
+    maxIterations: z.number().int().min(1).max(10).default(3),
   }),
   z.object({
     type: z.literal("git-setup"),
@@ -58,4 +60,6 @@ export interface NodeState {
   error?: string;
   /** For ci-gate nodes: number of test/fix rounds executed */
   rounds?: number;
+  /** For agent nodes: number of feedback iterations executed */
+  iterations?: number;
 }

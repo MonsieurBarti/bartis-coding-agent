@@ -24,6 +24,11 @@ export {
 } from "./engine";
 
 export {
+  PiAgentRunner,
+  type AgentRunner,
+} from "./agent";
+
+export {
   ContextQueryKind,
   ContextQuerySchema,
   ContextConfigSchema,
