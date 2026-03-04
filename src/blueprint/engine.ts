@@ -9,6 +9,9 @@ import {
   type CodeGraphExecutor,
   type AssembledContext,
 } from "./context";
+import type { AgentRunner } from "./agent";
+import { runFeedback, formatFeedback } from "../feedback/feedback";
+import type { PipelineProfile } from "../profile";
 
 export interface EngineEvents {
   onNodeStart?: (id: string, node: NodeState) => void;
@@ -23,6 +26,10 @@ export interface EngineOptions {
   projectPath?: string;
   /** Override the code-graph executor (default: SubprocessExecutor). */
   codeGraphExecutor?: CodeGraphExecutor;
+  /** Runner for agent nodes. When omitted, agent nodes are no-ops (stub). */
+  agentRunner?: AgentRunner;
+  /** Project profile for feedback checks (lint + typecheck) after agent runs. */
+  profile?: PipelineProfile;
 }
 
 export interface EngineResult {
@@ -60,11 +67,11 @@ export async function execute(
 ): Promise<EngineResult> {
   // Support legacy (events-only) and new (options) signatures
   const options: EngineOptions =
-    optionsOrEvents && ("events" in optionsOrEvents || "projectPath" in optionsOrEvents || "codeGraphExecutor" in optionsOrEvents)
+    optionsOrEvents && ("events" in optionsOrEvents || "projectPath" in optionsOrEvents || "codeGraphExecutor" in optionsOrEvents || "agentRunner" in optionsOrEvents || "profile" in optionsOrEvents)
       ? optionsOrEvents as EngineOptions
       : { events: optionsOrEvents as EngineEvents | undefined };
 
-  const { events, projectPath, codeGraphExecutor } = options;
+  const { events, projectPath, codeGraphExecutor, agentRunner, profile } = options;
   const order = topoSort(blueprint);
 
   const states = new Map<string, NodeState>();
@@ -136,7 +143,14 @@ export async function execute(
             prompt = `${assembled.text}\n\n${prompt}`;
           }
         }
-        await runAgent(prompt);
+        await runAgentWithFeedback(
+          prompt,
+          node.maxIterations,
+          agentRunner,
+          profile,
+          projectPath ?? process.cwd(),
+          state,
+        );
       }
       state.status = "success";
     } catch (err: unknown) {
@@ -254,7 +268,8 @@ async function runUnderstand(
   planFile: string,
 ): Promise<string> {
   const prompt = buildUnderstandPrompt(task, assembled);
-  const plan = await runAgent(prompt);
+  // TODO: invoke agent runner when understand node gains runner support
+  const plan = prompt;
   await mkdir(dirname(planFile), { recursive: true });
   await writeFile(planFile, plan, "utf-8");
   return plan;
@@ -292,9 +307,53 @@ implementation plan that includes:
   return sections.join("\n\n");
 }
 
-/** Stub for agent node execution. Will invoke Pi SDK later. */
-async function runAgent(_prompt: string): Promise<string> {
-  // TODO: invoke Pi SDK agent loop
-  // For now, agent nodes return empty plan
-  return "";
+/**
+ * Run an agent node with an optional feedback loop.
+ *
+ * 1. Run the agent with the prompt
+ * 2. Run lint + typecheck feedback (if profile provided)
+ * 3. If feedback fails and iterations remain, re-run agent with feedback
+ * 4. Throws if agent fails or feedback still fails after maxIterations
+ *
+ * When no agentRunner is provided, the node is a no-op (backward compat).
+ * When no profile is provided, the agent runs once with no feedback loop.
+ */
+async function runAgentWithFeedback(
+  prompt: string,
+  maxIterations: number,
+  runner: AgentRunner | undefined,
+  profile: PipelineProfile | undefined,
+  cwd: string,
+  state: NodeState,
+): Promise<void> {
+  if (!runner) {
+    // No runner configured — stub behavior (backward compat)
+    return;
+  }
+
+  let currentPrompt = prompt;
+
+  for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    state.iterations = iteration;
+
+    // Run the agent
+    await runner.run(currentPrompt, { cwd });
+
+    // No profile means no feedback — single-shot success
+    if (!profile) return;
+
+    // Run feedback checks (lint + typecheck)
+    const feedback = await runFeedback(profile, { cwd });
+    if (feedback.ok) return;
+
+    // Feedback failed — check if we have iterations left
+    if (iteration === maxIterations) {
+      throw new Error(
+        `Agent feedback failed after ${maxIterations} iteration${maxIterations === 1 ? "" : "s"}:\n${formatFeedback(feedback)}`,
+      );
+    }
+
+    // Append feedback to prompt for the next iteration
+    currentPrompt = `${prompt}\n\n## Feedback from iteration ${iteration}\n\n${formatFeedback(feedback)}\n\nFix the issues above and try again.`;
+  }
 }

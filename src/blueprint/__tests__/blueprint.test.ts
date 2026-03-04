@@ -311,6 +311,7 @@ nodes:
           type: "agent",
           prompt: "Think about the code",
           deps: [],
+          maxIterations: 3,
           context: {
             queries: [{ kind: "stats" }],
           },
