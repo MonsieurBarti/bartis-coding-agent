@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const NodeType = z.enum(["deterministic", "agent", "git-setup"]);
+export const NodeType = z.enum(["deterministic", "agent", "git-setup", "ci-gate"]);
 
 export const BlueprintNodeSchema = z.discriminatedUnion("type", [
   z.object({
@@ -19,6 +19,13 @@ export const BlueprintNodeSchema = z.discriminatedUnion("type", [
     branch: z.string(),
     baseBranch: z.string().default("main"),
     worktree: z.string().optional(),
+    deps: z.array(z.string()).default([]),
+  }),
+  z.object({
+    type: z.literal("ci-gate"),
+    test: z.string(),
+    autofix: z.string(),
+    maxRounds: z.number().int().min(1).max(10).default(2),
     deps: z.array(z.string()).default([]),
   }),
 ]);
@@ -40,4 +47,6 @@ export interface NodeState {
   node: BlueprintNode;
   status: NodeStatus;
   error?: string;
+  /** For ci-gate nodes: number of test/fix rounds executed */
+  rounds?: number;
 }
