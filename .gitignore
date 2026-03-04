@@ -13,3 +13,4 @@ node_modules/
 .runtime/
 .claude/commands/
 .logs/
+tsconfig.tsbuildinfo
