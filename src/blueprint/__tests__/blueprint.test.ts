@@ -103,8 +103,8 @@ nodes:
     const bp: Blueprint = {
       name: "cyclic",
       nodes: {
-        a: { type: "deterministic", command: "echo a", deps: ["b"] },
-        b: { type: "deterministic", command: "echo b", deps: ["a"] },
+        a: { type: "deterministic", command: "echo a", deps: ["b"], cleanup: false },
+        b: { type: "deterministic", command: "echo b", deps: ["a"], cleanup: false },
       },
     };
     expect(() => topoSort(bp)).toThrow(CycleError);
@@ -114,7 +114,7 @@ nodes:
     const bp: Blueprint = {
       name: "bad-dep",
       nodes: {
-        a: { type: "deterministic", command: "echo a", deps: ["missing"] },
+        a: { type: "deterministic", command: "echo a", deps: ["missing"], cleanup: false },
       },
     };
     expect(() => topoSort(bp)).toThrow(/unknown node "missing"/);
