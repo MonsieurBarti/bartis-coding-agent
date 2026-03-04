@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
 import {
   createAgentSession,
+  DefaultResourceLoader,
   SessionManager,
   runPrintMode,
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
 } from "@mariozechner/pi-coding-agent";
 import { loadProfile, type PipelineProfile } from "../profile";
+import { registerCodeGraphTools } from "../extensions";
 
 export interface RunPiAgentOptions {
   /** Human-readable task description for the agent */
@@ -76,8 +78,18 @@ export async function runPiAgent(
   // Build the combined prompt
   const prompt = await buildPrompt(profile, task, blueprintPath);
 
+  // Create resource loader with code-graph tools
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    extensionFactories: [
+      (pi) => registerCodeGraphTools(pi),
+    ],
+  });
+  await resourceLoader.reload();
+
   // Create a headless agent session
   const { session } = await createAgentSession({
+    resourceLoader,
     sessionManager: SessionManager.inMemory(cwd),
     cwd,
   });
