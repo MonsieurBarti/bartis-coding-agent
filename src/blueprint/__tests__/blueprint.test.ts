@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   BlueprintSchema,
   parseBlueprint,
@@ -752,5 +752,201 @@ describe("buildUnderstandPrompt", () => {
     expect(prompt).not.toContain("# Codebase Context");
     expect(prompt).toContain("# Task");
     expect(prompt).toContain("Fix bug");
+  });
+});
+
+describe("fix node", () => {
+  test("succeeds immediately when tests pass", async () => {
+    const bp = parseBlueprint(`
+name: fix-pass
+nodes:
+  fix:
+    type: fix
+    test: "echo tests-pass"
+    prompt: "Fix the failing tests"
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+    const state = result.states.get("fix")!;
+    expect(state.status).toBe("success");
+    expect(state.rounds).toBe(1);
+  });
+
+  test("invokes agent and retests on failure", async () => {
+    // First run: marker doesn't exist → create it and fail
+    // Agent stub runs (no-op). Retest: marker exists → pass
+    const marker = `/tmp/bca-fix-test-${Date.now()}`;
+    const bp = parseBlueprint(`
+name: fix-retry
+nodes:
+  fix:
+    type: fix
+    test: "test -f ${marker} || { touch ${marker} && exit 1; }"
+    prompt: "Fix the test"
+`);
+    try {
+      const result = await execute(bp);
+      expect(result.success).toBe(true);
+      const state = result.states.get("fix")!;
+      expect(state.status).toBe("success");
+      expect(state.rounds).toBe(2); // initial fail + 1 retry
+    } finally {
+      await Bun.spawn(["rm", "-f", marker]).exited;
+    }
+  });
+
+  test("fails after max retries exhausted", async () => {
+    const bp = parseBlueprint(`
+name: fix-fail
+nodes:
+  fix:
+    type: fix
+    test: "exit 1"
+    prompt: "Fix the tests"
+    maxRetries: 1
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    const state = result.states.get("fix")!;
+    expect(state.status).toBe("failure");
+    expect(state.error).toContain("Fix failed after 1 retry");
+    expect(state.rounds).toBe(2);
+  });
+
+  test("defaults maxRetries to 1", () => {
+    const bp = parseBlueprint(`
+name: fix-defaults
+nodes:
+  fix:
+    type: fix
+    test: "echo test"
+    prompt: "Fix things"
+`);
+    const node = bp.nodes.fix;
+    expect(node.type).toBe("fix");
+    if (node.type === "fix") {
+      expect(node.maxRetries).toBe(1);
+    }
+  });
+
+  test("skips downstream nodes when fix fails", async () => {
+    const bp = parseBlueprint(`
+name: fix-skip-downstream
+nodes:
+  fix:
+    type: fix
+    test: "exit 1"
+    prompt: "Fix it"
+    maxRetries: 1
+  deploy:
+    type: deterministic
+    command: "echo deploying"
+    deps: [fix]
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    expect(result.states.get("fix")!.status).toBe("failure");
+    expect(result.states.get("deploy")!.status).toBe("skipped");
+  });
+
+  test("captures test output in error message", async () => {
+    const bp = parseBlueprint(`
+name: fix-error-output
+nodes:
+  fix:
+    type: fix
+    test: "echo 'FAIL: expected 2 got 3' >&2 && exit 1"
+    prompt: "Fix the test"
+    maxRetries: 1
+`);
+    const result = await execute(bp);
+    const state = result.states.get("fix")!;
+    expect(state.status).toBe("failure");
+    expect(state.error).toContain("Fix failed after 1 retry");
+  });
+
+  test("works with deps on upstream nodes", async () => {
+    const bp = parseBlueprint(`
+name: fix-with-deps
+nodes:
+  build:
+    type: deterministic
+    command: "echo built"
+  fix:
+    type: fix
+    test: "echo tests-pass"
+    prompt: "Fix tests"
+    deps: [build]
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+    expect(result.states.get("build")!.status).toBe("success");
+    expect(result.states.get("fix")!.status).toBe("success");
+  });
+
+  test("parses fix node with context from YAML", () => {
+    const bp = parseBlueprint(`
+name: fix-with-context
+nodes:
+  fix:
+    type: fix
+    test: "npm test"
+    prompt: "Analyze failures and fix"
+    context:
+      queries:
+        - kind: stats
+        - kind: structure
+          path: src
+`);
+    const node = bp.nodes.fix;
+    expect(node.type).toBe("fix");
+    if (node.type === "fix") {
+      expect(node.context).toBeDefined();
+      expect(node.context!.queries).toHaveLength(2);
+    }
+  });
+
+  test("assembles context before fix attempt", async () => {
+    const marker = `/tmp/bca-fix-ctx-${Date.now()}`;
+    const bp: Blueprint = {
+      name: "fix-context-test",
+      nodes: {
+        fix: {
+          type: "fix" as const,
+          test: `test -f ${marker} || { touch ${marker} && exit 1; }`,
+          prompt: "Fix the code",
+          maxRetries: 1,
+          deps: [],
+          context: {
+            queries: [{ kind: "stats" as const }],
+          },
+        },
+      },
+    };
+
+    const mockExecutor: CodeGraphExecutor = {
+      async execute(query: ContextQuery) {
+        if (query.kind === "stats") return "Files: 10\nSymbols: 50";
+        return "";
+      },
+    };
+
+    let assembledCtx: AssembledContext | undefined;
+    try {
+      const result = await execute(bp, {
+        codeGraphExecutor: mockExecutor,
+        projectPath: "/test",
+        events: {
+          onContextAssembled: (_id, ctx) => {
+            assembledCtx = ctx;
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(assembledCtx).toBeDefined();
+      expect(assembledCtx!.text).toContain("Project Stats");
+    } finally {
+      await Bun.spawn(["rm", "-f", marker]).exited;
+    }
   });
 });

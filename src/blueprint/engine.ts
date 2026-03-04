@@ -127,6 +127,23 @@ export async function execute(
           node.planFile,
         );
         events?.onPlanWritten?.(id, node.planFile, plan);
+      } else if (node.type === "fix") {
+        // Fix node — assemble context if configured, then run test/fix loop
+        let prompt = node.prompt;
+        if (node.context) {
+          const executor = codeGraphExecutor ?? new SubprocessExecutor();
+          const resolvedPath = projectPath ?? process.cwd();
+          const assembled = await assembleContext(
+            node.context,
+            resolvedPath,
+            executor,
+          );
+          events?.onContextAssembled?.(id, assembled);
+          if (assembled.text) {
+            prompt = `${assembled.text}\n\n${prompt}`;
+          }
+        }
+        await runFix(node.test, prompt, node.maxRetries, state);
       } else {
         // Agent node — assemble context if configured
         let prompt = node.prompt;
@@ -168,17 +185,29 @@ export async function execute(
   return { blueprint: blueprint.name, states, success };
 }
 
-/** Run a shell command. Throws on non-zero exit. */
-async function runDeterministic(command: string): Promise<void> {
+interface CommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** Run a shell command and return its output. */
+async function runCommand(command: string): Promise<CommandResult> {
   const proc = Bun.spawn(["sh", "-c", command], {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exitCode, , stderr] = await Promise.all([
+  const [exitCode, stdout, stderr] = await Promise.all([
     proc.exited,
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
+  return { exitCode, stdout, stderr };
+}
+
+/** Run a shell command. Throws on non-zero exit. */
+async function runDeterministic(command: string): Promise<void> {
+  const { exitCode, stderr } = await runCommand(command);
   if (exitCode !== 0) {
     throw new Error(
       `Command failed (exit ${exitCode}): ${command}${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
@@ -356,4 +385,56 @@ async function runAgentWithFeedback(
     // Append feedback to prompt for the next iteration
     currentPrompt = `${prompt}\n\n## Feedback from iteration ${iteration}\n\n${formatFeedback(feedback)}\n\nFix the issues above and try again.`;
   }
+}
+
+/**
+ * Run a fix node: test → agent fix → retest loop, up to maxRetries.
+ * Unlike ci-gate, the fix step is an LLM agent that interprets test
+ * failure output and applies corrections. Max 1 retry before human handoff.
+ */
+async function runFix(
+  testCmd: string,
+  prompt: string,
+  maxRetries: number,
+  state: NodeState,
+): Promise<void> {
+  // Initial test run
+  state.rounds = 1;
+  const initial = await runCommand(testCmd);
+  if (initial.exitCode === 0) return; // Tests pass — nothing to fix
+
+  // Tests failed — enter retry loop
+  for (let retry = 1; retry <= maxRetries; retry++) {
+    state.rounds = retry + 1;
+
+    // Build agent prompt with test failure output
+    const output = [initial.stderr, initial.stdout]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join("\n");
+    const fixPrompt = `${prompt}\n\n## Test Failure Output\n\n\`\`\`\n${output}\n\`\`\``;
+
+    await runAgent(fixPrompt);
+
+    // Retest after agent fix
+    const retest = await runCommand(testCmd);
+    if (retest.exitCode === 0) return; // Fixed!
+
+    if (retry === maxRetries) {
+      const retestOutput = [retest.stderr, retest.stdout]
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join("\n");
+      throw new Error(
+        `Fix failed after ${maxRetries} ${maxRetries === 1 ? "retry" : "retries"}: ${testCmd}${retestOutput ? `\n${retestOutput}` : ""}`,
+      );
+    }
+  }
+}
+
+/** Stub for agent node execution. Will invoke Pi SDK later. */
+async function runAgent(_prompt: string): Promise<string> {
+  // TODO: invoke Pi SDK agent loop
+  // For now, agent nodes return empty plan
+  return "";
 }
