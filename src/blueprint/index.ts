@@ -17,6 +17,7 @@ export {
   execute,
   parseBlueprint,
   loadBlueprint,
+  buildUnderstandPrompt,
   type EngineEvents,
   type EngineOptions,
   type EngineResult,
