@@ -2,3 +2,11 @@
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Dependencies
+node_modules/
+
+# Gas Town (added by gt)
+.runtime/
+.claude/commands/
+.logs/
