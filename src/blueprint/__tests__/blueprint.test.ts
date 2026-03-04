@@ -281,3 +281,133 @@ nodes:
     expect(state.error).toContain("boom");
   });
 });
+
+describe("ci-gate node", () => {
+  test("passes on first round when tests succeed", async () => {
+    const bp = parseBlueprint(`
+name: gate-pass
+nodes:
+  gate:
+    type: ci-gate
+    test: "echo tests-pass"
+    autofix: "echo fix"
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+    const state = result.states.get("gate")!;
+    expect(state.status).toBe("success");
+    expect(state.rounds).toBe(1);
+  });
+
+  test("applies autofix and passes on round 2", async () => {
+    // Use a temp file as state: first run fails, autofix creates marker, second run passes
+    const marker = `/tmp/bca-cigate-test-${Date.now()}`;
+    const bp = parseBlueprint(`
+name: gate-fix
+nodes:
+  gate:
+    type: ci-gate
+    test: "test -f ${marker}"
+    autofix: "touch ${marker}"
+`);
+    try {
+      const result = await execute(bp);
+      expect(result.success).toBe(true);
+      const state = result.states.get("gate")!;
+      expect(state.status).toBe("success");
+      expect(state.rounds).toBe(2);
+    } finally {
+      await Bun.spawn(["rm", "-f", marker]).exited;
+    }
+  });
+
+  test("fails after max rounds exhausted", async () => {
+    const bp = parseBlueprint(`
+name: gate-fail
+nodes:
+  gate:
+    type: ci-gate
+    test: "exit 1"
+    autofix: "echo fixing"
+    maxRounds: 2
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    const state = result.states.get("gate")!;
+    expect(state.status).toBe("failure");
+    expect(state.error).toContain("CI gate failed after 2 rounds");
+    expect(state.rounds).toBe(2);
+  });
+
+  test("fails immediately if autofix command fails", async () => {
+    const bp = parseBlueprint(`
+name: gate-autofix-fail
+nodes:
+  gate:
+    type: ci-gate
+    test: "exit 1"
+    autofix: "exit 1"
+    maxRounds: 2
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    const state = result.states.get("gate")!;
+    expect(state.status).toBe("failure");
+    expect(state.error).toContain("Autofix failed in round 1");
+  });
+
+  test("defaults maxRounds to 2", () => {
+    const bp = parseBlueprint(`
+name: gate-defaults
+nodes:
+  gate:
+    type: ci-gate
+    test: "echo test"
+    autofix: "echo fix"
+`);
+    const node = bp.nodes.gate;
+    expect(node.type).toBe("ci-gate");
+    if (node.type === "ci-gate") {
+      expect(node.maxRounds).toBe(2);
+    }
+  });
+
+  test("skips downstream nodes when gate fails", async () => {
+    const bp = parseBlueprint(`
+name: gate-skip-downstream
+nodes:
+  gate:
+    type: ci-gate
+    test: "exit 1"
+    autofix: "echo fix"
+    maxRounds: 1
+  deploy:
+    type: deterministic
+    command: "echo deploying"
+    deps: [gate]
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(false);
+    expect(result.states.get("gate")!.status).toBe("failure");
+    expect(result.states.get("deploy")!.status).toBe("skipped");
+  });
+
+  test("works with deps on upstream nodes", async () => {
+    const bp = parseBlueprint(`
+name: gate-with-deps
+nodes:
+  build:
+    type: deterministic
+    command: "echo built"
+  gate:
+    type: ci-gate
+    test: "echo tests-pass"
+    autofix: "echo fix"
+    deps: [build]
+`);
+    const result = await execute(bp);
+    expect(result.success).toBe(true);
+    expect(result.states.get("build")!.status).toBe("success");
+    expect(result.states.get("gate")!.status).toBe("success");
+  });
+});

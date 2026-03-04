@@ -76,8 +76,10 @@ export async function execute(
         await runDeterministic(node.command);
       } else if (node.type === "git-setup") {
         await runGitSetup(node.branch, node.baseBranch, node.worktree);
-      } else {
+      } else if (node.type === "agent") {
         await runAgent(node.prompt);
+      } else if (node.type === "ci-gate") {
+        await runCiGate(node.test, node.autofix, node.maxRounds, state);
       }
       state.status = "success";
     } catch (err: unknown) {
@@ -137,12 +139,48 @@ async function git(args: string[]): Promise<void> {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const exitCode = await proc.exited;
+  const [exitCode, , stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
     throw new Error(
       `git ${args[0]} failed (exit ${exitCode})${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
     );
+  }
+}
+
+/**
+ * Run a CI gate: test → autofix → retest loop, up to maxRounds.
+ * Throws if tests still fail after all rounds are exhausted.
+ */
+async function runCiGate(
+  testCmd: string,
+  autofixCmd: string,
+  maxRounds: number,
+  state: NodeState,
+): Promise<void> {
+  for (let round = 1; round <= maxRounds; round++) {
+    state.rounds = round;
+    try {
+      await runDeterministic(testCmd);
+      return; // Tests passed — success
+    } catch (testErr: unknown) {
+      if (round === maxRounds) {
+        throw new Error(
+          `CI gate failed after ${maxRounds} rounds: ${testErr instanceof Error ? testErr.message : String(testErr)}`,
+        );
+      }
+      // Tests failed but we have rounds left — run autofix, then loop
+      try {
+        await runDeterministic(autofixCmd);
+      } catch (fixErr: unknown) {
+        throw new Error(
+          `Autofix failed in round ${round}: ${fixErr instanceof Error ? fixErr.message : String(fixErr)}`,
+        );
+      }
+    }
   }
 }
 
