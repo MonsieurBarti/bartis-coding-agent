@@ -6,6 +6,9 @@
 # Build artifacts
 tsconfig.tsbuildinfo
 
+# Environment
+.env
+
 # Dependencies
 node_modules/
 
