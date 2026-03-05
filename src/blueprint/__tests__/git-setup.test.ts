@@ -22,7 +22,8 @@ async function makeTestRepo(): Promise<{ bare: string; clone: string }> {
   const clone = join(base, "work");
 
   // Create bare "origin" with an initial commit
-  await run(["git", "init", "--bare", bare]);
+  // Explicitly set default branch to 'main' — CI may not have init.defaultBranch configured
+  await run(["git", "init", "--bare", "--initial-branch=main", bare]);
   await run(["git", "clone", bare, clone]);
   await run(["git", "commit", "--allow-empty", "-m", "init"], clone);
   await run(["git", "push", "origin", "main"], clone);
