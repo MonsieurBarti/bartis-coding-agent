@@ -99,15 +99,68 @@ export async function createIssue(
  * Sling work onto a polecat in the target rig.
  * gt sling auto-creates a convoy to track the issue.
  *
- * Uses --merge=local so the branch stays on the feature branch
- * and a human must open a PR and review before merging.
+ * Uses --merge=mr so the polecat pushes the branch to origin
+ * and the refinery opens a PR for review.
  */
 export async function slingWork(issueId: string, rig: string, args?: string): Promise<void> {
-  const cmdArgs = ["sling", issueId, rig, "--merge=local"];
+  const cmdArgs = ["sling", issueId, rig, "--merge=mr"];
   if (args) {
     cmdArgs.push("--args", args);
   }
   await run("gt", cmdArgs);
+}
+
+/**
+ * Link an issue to its convoy after sling.
+ *
+ * gt sling auto-creates a convoy but doesn't add the issue as a member.
+ * This finds the most recent convoy and adds the issue to it.
+ */
+export async function linkIssueToConvoy(issueId: string): Promise<string | null> {
+  // Find the convoy that was just created by sling
+  const listOut = await tryRun("gt", ["convoy", "list", "--json"]);
+  if (!listOut) return null;
+
+  try {
+    const convoys = JSON.parse(listOut);
+    const list = Array.isArray(convoys) ? convoys : [convoys];
+    // Find the most recent active convoy (sling just created it)
+    const convoy = list.find(
+      (c: { status?: string }) => c.status === "active" || c.status === "open",
+    );
+    if (!convoy?.id) return null;
+
+    await run("gt", ["convoy", "add", convoy.id, issueId]);
+    return convoy.id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Close the convoy associated with a completed issue.
+ */
+export async function closeConvoyForIssue(issueId: string): Promise<void> {
+  const listOut = await tryRun("gt", ["convoy", "list", "--json"]);
+  if (!listOut) return;
+
+  try {
+    const convoys = JSON.parse(listOut);
+    const list = Array.isArray(convoys) ? convoys : [convoys];
+    // Find convoy that contains this issue
+    for (const convoy of list) {
+      const members = convoy.members ?? [];
+      const hasIssue = members.some((m: { id?: string }) => m.id === issueId);
+      if (hasIssue && convoy.id) {
+        await tryRun("gt", ["convoy", "close", convoy.id]);
+        return;
+      }
+    }
+    // Fallback: try gt convoy check to auto-close completed convoys
+    await tryRun("gt", ["convoy", "check"]);
+  } catch {
+    // Best-effort — don't fail the pipeline over convoy cleanup
+  }
 }
 
 /**
@@ -221,7 +274,10 @@ export async function dispatchConvoy(
     };
   }
 
-  // 3. Poll issue status
+  // 3. Link issue to the auto-created convoy
+  await linkIssueToConvoy(issueId);
+
+  // 4. Poll issue status
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
@@ -234,6 +290,7 @@ export async function dispatchConvoy(
       onPoll?.({ issueId, status: issue.status, elapsed });
 
       if (isComplete(issue.status)) {
+        await closeConvoyForIssue(issueId);
         const prUrl = (await findPrUrl(issueId)) ?? undefined;
         return {
           success: true,
@@ -244,6 +301,7 @@ export async function dispatchConvoy(
       }
 
       if (isFailed(issue.status)) {
+        await closeConvoyForIssue(issueId);
         return {
           success: false,
           issueId,

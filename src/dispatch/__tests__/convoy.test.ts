@@ -116,7 +116,7 @@ describe("slingWork", () => {
     const { calls, restore } = mockSpawn([{ stdout: "Slung!" }]);
     try {
       await slingWork("bca-abc", "myrig");
-      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig", "--merge=local"]);
+      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig", "--merge=mr"]);
     } finally {
       restore();
     }
@@ -131,7 +131,7 @@ describe("slingWork", () => {
         "sling",
         "bca-abc",
         "myrig",
-        "--merge=local",
+        "--merge=mr",
         "--args",
         "focus on tests",
       ]);
@@ -181,9 +181,23 @@ describe("dispatchConvoy", () => {
       { stdout: JSON.stringify({ id: "bca-issue1" }) },
       // 2. slingWork -> gt sling
       { stdout: "Slung bca-issue1 to myrig" },
-      // 3. First poll -> bd show (closed)
+      // 3. linkIssueToConvoy -> gt convoy list
+      {
+        stdout: JSON.stringify([{ id: "convoy-1", status: "active", members: [] }]),
+      },
+      // 4. linkIssueToConvoy -> gt convoy add
+      { stdout: "Added bca-issue1 to convoy-1" },
+      // 5. First poll -> bd show (closed)
       { stdout: JSON.stringify({ id: "bca-issue1", status: "closed" }) },
-      // 4. findPrUrl -> bd show
+      // 6. closeConvoyForIssue -> gt convoy list
+      {
+        stdout: JSON.stringify([
+          { id: "convoy-1", status: "active", members: [{ id: "bca-issue1" }] },
+        ]),
+      },
+      // 7. closeConvoyForIssue -> gt convoy close
+      { stdout: "Closed convoy-1" },
+      // 8. findPrUrl -> bd show
       {
         stdout: JSON.stringify({
           id: "bca-issue1",
@@ -213,8 +227,22 @@ describe("dispatchConvoy", () => {
       { stdout: JSON.stringify({ id: "bca-issue2" }) },
       // slingWork
       { stdout: "Slung" },
+      // linkIssueToConvoy -> gt convoy list
+      {
+        stdout: JSON.stringify([{ id: "convoy-2", status: "active", members: [] }]),
+      },
+      // linkIssueToConvoy -> gt convoy add
+      { stdout: "Added bca-issue2 to convoy-2" },
       // poll -> failed
       { stdout: JSON.stringify({ id: "bca-issue2", status: "failed" }) },
+      // closeConvoyForIssue -> gt convoy list
+      {
+        stdout: JSON.stringify([
+          { id: "convoy-2", status: "active", members: [{ id: "bca-issue2" }] },
+        ]),
+      },
+      // closeConvoyForIssue -> gt convoy close
+      { stdout: "Closed convoy-2" },
     ]);
 
     try {
