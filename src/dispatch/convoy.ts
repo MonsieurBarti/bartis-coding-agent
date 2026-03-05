@@ -111,56 +111,12 @@ export async function slingWork(issueId: string, rig: string, args?: string): Pr
 }
 
 /**
- * Link an issue to its convoy after sling.
- *
- * gt sling auto-creates a convoy but doesn't add the issue as a member.
- * This finds the most recent convoy and adds the issue to it.
+ * Auto-close any convoys whose tracked issues are all complete.
+ * gt sling already adds the issue to the convoy it creates,
+ * so we just need to trigger the check after completion.
  */
-export async function linkIssueToConvoy(issueId: string): Promise<string | null> {
-  // Find the convoy that was just created by sling
-  const listOut = await tryRun("gt", ["convoy", "list", "--json"]);
-  if (!listOut) return null;
-
-  try {
-    const convoys = JSON.parse(listOut);
-    const list = Array.isArray(convoys) ? convoys : [convoys];
-    // Find the most recent active convoy (sling just created it)
-    const convoy = list.find(
-      (c: { status?: string }) => c.status === "active" || c.status === "open",
-    );
-    if (!convoy?.id) return null;
-
-    await run("gt", ["convoy", "add", convoy.id, issueId]);
-    return convoy.id;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Close the convoy associated with a completed issue.
- */
-export async function closeConvoyForIssue(issueId: string): Promise<void> {
-  const listOut = await tryRun("gt", ["convoy", "list", "--json"]);
-  if (!listOut) return;
-
-  try {
-    const convoys = JSON.parse(listOut);
-    const list = Array.isArray(convoys) ? convoys : [convoys];
-    // Find convoy that contains this issue
-    for (const convoy of list) {
-      const members = convoy.members ?? [];
-      const hasIssue = members.some((m: { id?: string }) => m.id === issueId);
-      if (hasIssue && convoy.id) {
-        await tryRun("gt", ["convoy", "close", convoy.id]);
-        return;
-      }
-    }
-    // Fallback: try gt convoy check to auto-close completed convoys
-    await tryRun("gt", ["convoy", "check"]);
-  } catch {
-    // Best-effort — don't fail the pipeline over convoy cleanup
-  }
+export async function closeCompletedConvoys(): Promise<void> {
+  await tryRun("gt", ["convoy", "check"]);
 }
 
 /**
@@ -274,10 +230,7 @@ export async function dispatchConvoy(
     };
   }
 
-  // 3. Link issue to the auto-created convoy
-  await linkIssueToConvoy(issueId);
-
-  // 4. Poll issue status
+  // 3. Poll issue status
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
@@ -290,7 +243,7 @@ export async function dispatchConvoy(
       onPoll?.({ issueId, status: issue.status, elapsed });
 
       if (isComplete(issue.status)) {
-        await closeConvoyForIssue(issueId);
+        await closeCompletedConvoys();
         const prUrl = (await findPrUrl(issueId)) ?? undefined;
         return {
           success: true,
@@ -301,7 +254,7 @@ export async function dispatchConvoy(
       }
 
       if (isFailed(issue.status)) {
-        await closeConvoyForIssue(issueId);
+        await closeCompletedConvoys();
         return {
           success: false,
           issueId,

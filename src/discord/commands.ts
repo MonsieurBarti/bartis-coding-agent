@@ -4,13 +4,7 @@ import {
   EmbedBuilder,
   SlashCommandBuilder,
 } from "discord.js";
-import {
-  closeConvoyForIssue,
-  createIssue,
-  findPrUrl,
-  linkIssueToConvoy,
-  slingWork,
-} from "../dispatch/convoy";
+import { closeCompletedConvoys, createIssue, findPrUrl, slingWork } from "../dispatch/convoy";
 import { getProject, loadProjectRegistry, type ProjectRegistry } from "../project";
 import { buildStatusEmbed } from "../status/embed";
 
@@ -120,8 +114,7 @@ async function pollForCompletion(
       // Check if pipeline is done
       const stage = embed.fields.find((f) => f.name === "Stage")?.value?.toLowerCase();
       if (stage?.includes("complete") || stage?.includes("failed")) {
-        // Close the convoy now that the issue is done
-        await closeConvoyForIssue(issueId);
+        await closeCompletedConvoys();
 
         if (stage?.includes("complete")) {
           // Retry PR lookup — the polecat may still be pushing/creating the PR
@@ -176,10 +169,7 @@ export async function handleWorkCommand(interaction: ChatInputCommandInteraction
     // 2. Sling to polecat — gt sling auto-creates a convoy
     await slingWork(issueId, projectName);
 
-    // 3. Link issue to the auto-created convoy
-    await linkIssueToConvoy(issueId);
-
-    // 4. Build initial status embed and reply
+    // 3. Build initial status embed and reply
     const embed = await buildStatusEmbed(issueId, { startedAt });
     const discordEmbed = statusEmbedToDiscord(embed);
     const reply = await interaction.editReply({ embeds: [discordEmbed] });

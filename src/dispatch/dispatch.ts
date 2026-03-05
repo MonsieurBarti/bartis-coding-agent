@@ -40,7 +40,7 @@ export interface DispatchResult {
  * 4. Runs the blueprint engine to completion
  */
 export async function dispatch(options: DispatchOptions): Promise<DispatchResult> {
-  const { task, projectRoot, cwd = projectRoot, blueprintPath, events } = options;
+  const { task, projectRoot, blueprintPath, events } = options;
 
   // 1. Load project profile
   const profile = await loadProfile(projectRoot);
