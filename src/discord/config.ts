@@ -1,6 +1,8 @@
 export interface DiscordConfig {
   /** Discord bot token. */
   token: string;
+  /** Discord application ID (for slash command registration). */
+  appId: string;
   /** Comma-separated channel IDs the bot listens in. */
   channelIds: string[];
 }
@@ -10,12 +12,18 @@ export interface DiscordConfig {
  *
  * Required:
  *   DISCORD_TOKEN       — Bot authentication token
+ *   DISCORD_APP_ID      — Application ID for slash command registration
  *   DISCORD_CHANNEL_ID  — Comma-separated list of channel IDs to listen in
  */
 export function loadConfig(): DiscordConfig {
   const token = process.env.DISCORD_TOKEN;
   if (!token) {
     throw new Error("DISCORD_TOKEN environment variable is required");
+  }
+
+  const appId = process.env.DISCORD_APP_ID;
+  if (!appId) {
+    throw new Error("DISCORD_APP_ID environment variable is required");
   }
 
   const rawChannels = process.env.DISCORD_CHANNEL_ID;
@@ -32,5 +40,5 @@ export function loadConfig(): DiscordConfig {
     throw new Error("DISCORD_CHANNEL_ID must contain at least one channel ID");
   }
 
-  return { token, channelIds };
+  return { token, appId, channelIds };
 }
