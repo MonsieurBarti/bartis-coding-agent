@@ -1,4 +1,4 @@
-# bca — Blueprint Coding Agent
+# bca — Barti's Coding Agent
 
 A Discord-integrated AI coding pipeline that dispatches tasks to autonomous worker agents (polecats) via Gas Town. Users submit work through Discord slash commands, and bca orchestrates the full cycle: issue creation, convoy tracking, codebase analysis, agent-driven implementation, feedback loops, and PR creation.
 
