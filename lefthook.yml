@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: typecheck
+      glob: "*.{ts,tsx}"
+      run: bunx tsc --noEmit
+    - name: lint
+      glob: "*.{ts,tsx,js,jsx}"
+      run: bunx biome check src/ index.ts
+    - name: test
+      run: bun test
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: bunx tsc --noEmit
+    - name: lint
+      run: bunx biome check src/ index.ts
+    - name: test
+      run: bun test
