@@ -21,10 +21,7 @@ export interface CreatePrContext {
  *
  * Missing optional values resolve to empty string.
  */
-export function renderTemplate(
-  template: string,
-  ctx: CreatePrContext,
-): string {
+export function renderTemplate(template: string, ctx: CreatePrContext): string {
   const vars: Record<string, string> = {
     title: ctx.title,
     summary: ctx.summary,
@@ -46,10 +43,7 @@ const DEFAULT_TEMPLATE = `## Summary
 /**
  * Build the PR body from profile template (or default) and context.
  */
-export function buildPrBody(
-  profile: PipelineProfile,
-  ctx: CreatePrContext,
-): string {
+export function buildPrBody(profile: PipelineProfile, ctx: CreatePrContext): string {
   const template = profile.pr.template ?? DEFAULT_TEMPLATE;
   return renderTemplate(template, ctx).trim();
 }
@@ -68,10 +62,7 @@ function shellEscape(s: string): string {
  * 1. Pushes the branch to origin
  * 2. Creates a PR via `gh pr create`
  */
-export function buildCreatePrCommand(
-  profile: PipelineProfile,
-  ctx: CreatePrContext,
-): string {
+export function buildCreatePrCommand(profile: PipelineProfile, ctx: CreatePrContext): string {
   const branch = ctx.branch ?? "HEAD";
   const baseBranch = profile.git.baseBranch;
   const body = buildPrBody(profile, ctx);

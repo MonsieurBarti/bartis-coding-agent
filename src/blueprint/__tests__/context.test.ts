@@ -1,11 +1,11 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  ContextQuerySchema,
-  ContextConfigSchema,
   assembleContext,
-  type ContextQuery,
-  type ContextConfig,
   type CodeGraphExecutor,
+  type ContextConfig,
+  ContextConfigSchema,
+  type ContextQuery,
+  ContextQuerySchema,
 } from "../context";
 
 /** Mock executor that returns canned responses. */
@@ -96,15 +96,11 @@ describe("ContextQuerySchema", () => {
   });
 
   test("rejects unknown query kind", () => {
-    expect(() =>
-      ContextQuerySchema.parse({ kind: "unknown" }),
-    ).toThrow();
+    expect(() => ContextQuerySchema.parse({ kind: "unknown" })).toThrow();
   });
 
   test("rejects file_summary without path", () => {
-    expect(() =>
-      ContextQuerySchema.parse({ kind: "file_summary" }),
-    ).toThrow();
+    expect(() => ContextQuerySchema.parse({ kind: "file_summary" })).toThrow();
   });
 });
 
@@ -117,19 +113,14 @@ describe("ContextConfigSchema", () => {
   });
 
   test("rejects empty queries array", () => {
-    expect(() =>
-      ContextConfigSchema.parse({ queries: [] }),
-    ).toThrow();
+    expect(() => ContextConfigSchema.parse({ queries: [] })).toThrow();
   });
 });
 
 describe("assembleContext", () => {
   test("assembles results from all queries", async () => {
     const config: ContextConfig = {
-      queries: [
-        { kind: "stats" },
-        { kind: "structure", path: "src" },
-      ],
+      queries: [{ kind: "stats" }, { kind: "structure", path: "src" }],
     };
     const executor = new MockExecutor({
       stats: "Files: 42\nSymbols: 128",
@@ -147,10 +138,7 @@ describe("assembleContext", () => {
 
   test("captures errors without aborting", async () => {
     const config: ContextConfig = {
-      queries: [
-        { kind: "stats" },
-        { kind: "structure" },
-      ],
+      queries: [{ kind: "stats" }, { kind: "structure" }],
     };
     const executor = new FailingExecutor(new Set(["stats"]));
 

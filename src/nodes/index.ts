@@ -1,6 +1,6 @@
 export {
   buildCreatePrCommand,
   buildPrBody,
-  renderTemplate,
   type CreatePrContext,
+  renderTemplate,
 } from "./create-pr";

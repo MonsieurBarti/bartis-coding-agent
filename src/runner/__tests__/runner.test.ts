@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll } from "bun:test";
-import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "bun:test";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
-import { buildPrompt } from "../runner";
+import { join } from "node:path";
 import { parseProfile } from "../../profile";
+import { buildPrompt } from "../runner";
 
 const PROFILE_YAML = `
 project:
@@ -19,7 +19,7 @@ rules:
 const profile = parseProfile(PROFILE_YAML);
 
 describe("buildPrompt", () => {
-  const tmpDir = join(tmpdir(), "bca-runner-prompt-test-" + Date.now());
+  const tmpDir = join(tmpdir(), `bca-runner-prompt-test-${Date.now()}`);
 
   beforeAll(async () => {
     await mkdir(tmpDir, { recursive: true });
@@ -57,11 +57,7 @@ describe("buildPrompt", () => {
   });
 
   it("gracefully handles missing blueprint file", async () => {
-    const prompt = await buildPrompt(
-      profile,
-      "Do work",
-      "/nonexistent/blueprint.yaml",
-    );
+    const prompt = await buildPrompt(profile, "Do work", "/nonexistent/blueprint.yaml");
     expect(prompt).toContain("Blueprint file not found");
     expect(prompt).toContain("Do work");
   });

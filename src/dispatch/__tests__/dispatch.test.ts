@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { buildDefaultBlueprint } from "../default-blueprint";
 import { dispatch } from "../dispatch";
 
@@ -26,10 +26,7 @@ describe("buildDefaultBlueprint", () => {
     const bp = buildDefaultBlueprint("Refactor auth");
     const node = bp.nodes.understand;
     if (node.type === "understand") {
-      expect(node.context.queries).toEqual([
-        { kind: "stats" },
-        { kind: "structure" },
-      ]);
+      expect(node.context.queries).toEqual([{ kind: "stats" }, { kind: "structure" }]);
       expect(node.planFile).toBe(".pi/plan.md");
     }
   });

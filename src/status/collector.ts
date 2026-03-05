@@ -2,13 +2,7 @@
  * Status collector — shells out to bd and gt to gather pipeline state.
  */
 
-import type {
-  BeadStatus,
-  ConvoyStatus,
-  ConvoyMember,
-  PipelineStage,
-  TestResults,
-} from "./types";
+import type { BeadStatus, ConvoyMember, ConvoyStatus, PipelineStage, TestResults } from "./types";
 
 interface CommandResult {
   exitCode: number;
@@ -70,14 +64,12 @@ export async function fetchConvoyStatus(): Promise<ConvoyStatus | null> {
     const convoy = Array.isArray(parsed) ? parsed[0] : parsed;
     if (!convoy?.name) return null;
 
-    const members: ConvoyMember[] = (convoy.members ?? []).map(
-      (m: Record<string, unknown>) => ({
-        id: String(m.id ?? ""),
-        title: String(m.title ?? ""),
-        status: String(m.status ?? "unknown"),
-        assignee: m.assignee ? String(m.assignee) : undefined,
-      }),
-    );
+    const members: ConvoyMember[] = (convoy.members ?? []).map((m: Record<string, unknown>) => ({
+      id: String(m.id ?? ""),
+      title: String(m.title ?? ""),
+      status: String(m.status ?? "unknown"),
+      assignee: m.assignee ? String(m.assignee) : undefined,
+    }));
 
     return {
       name: convoy.name,
@@ -109,13 +101,14 @@ export function deriveStage(beadStatus: string): PipelineStage {
  * Run the project test command and collect results.
  * Returns null if no test command is provided.
  */
-export async function collectTestResults(
-  testCommand?: string,
-): Promise<TestResults | null> {
+export async function collectTestResults(testCommand?: string): Promise<TestResults | null> {
   if (!testCommand) return null;
 
   const { exitCode, stdout, stderr } = await run(testCommand);
-  const output = [stdout, stderr].map((s) => s.trim()).filter(Boolean).join("\n");
+  const output = [stdout, stderr]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n");
 
   // Try to parse Bun test output (e.g., "3 pass, 1 fail, 4 total")
   const counts = parseTestCounts(output);
@@ -128,9 +121,7 @@ export async function collectTestResults(
 }
 
 /** Extract test counts from common test runner output formats. */
-function parseTestCounts(
-  output: string,
-): { total?: number; pass?: number; fail?: number } {
+function parseTestCounts(output: string): { total?: number; pass?: number; fail?: number } {
   // Bun test: "3 pass\n0 fail\n3 expect() calls"
   const passMatch = output.match(/(\d+)\s+pass/i);
   const failMatch = output.match(/(\d+)\s+fail/i);
@@ -143,5 +134,5 @@ function parseTestCounts(
 }
 
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + "..." : s;
+  return s.length > max ? `${s.slice(0, max)}...` : s;
 }

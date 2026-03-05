@@ -1,13 +1,13 @@
-import { describe, test, expect } from "bun:test";
-import { writeFile, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-  parseProjectRegistry,
-  loadProjectRegistry,
   getProject,
+  loadProjectRegistry,
   ProjectRegistryLoadError,
   ProjectRegistrySchema,
+  parseProjectRegistry,
 } from "../index";
 
 const VALID_YAML = `
@@ -31,7 +31,7 @@ describe("parseProjectRegistry", () => {
     expect(registry.default).toBe("bca");
     expect(Object.keys(registry.projects)).toEqual(["bca", "gastown"]);
 
-    const bca = registry.projects["bca"];
+    const bca = registry.projects.bca;
     expect(bca.repo).toBe("https://github.com/anthropics/bca.git");
     expect(bca.branch).toBe("main");
     expect(bca.profile).toBe(".pi/pipeline.yaml");
@@ -41,7 +41,7 @@ describe("parseProjectRegistry", () => {
 
   test("applies defaults for branch and profile", () => {
     const registry = parseProjectRegistry(VALID_YAML);
-    const gastown = registry.projects["gastown"];
+    const gastown = registry.projects.gastown;
     expect(gastown.branch).toBe("main");
     expect(gastown.profile).toBe(".pi/pipeline.yaml");
   });
@@ -54,7 +54,7 @@ projects:
     repo: https://github.com/test/myproj.git
     language: python
 `);
-    expect(registry.projects["myproj"].description).toBeUndefined();
+    expect(registry.projects.myproj.description).toBeUndefined();
   });
 
   test("rejects when default project is not in projects map", () => {
@@ -138,7 +138,7 @@ describe("getProject", () => {
 });
 
 describe("loadProjectRegistry", () => {
-  const tmpBase = join(tmpdir(), "bca-project-test-" + Date.now());
+  const tmpBase = join(tmpdir(), `bca-project-test-${Date.now()}`);
 
   test("loads valid YAML from file path", async () => {
     const dir = join(tmpBase, "valid");

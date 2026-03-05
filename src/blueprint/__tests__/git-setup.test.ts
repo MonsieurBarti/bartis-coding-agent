@@ -1,8 +1,19 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseBlueprint, execute, type Blueprint } from "../index";
+import { join } from "node:path";
+import { execute, parseBlueprint } from "../index";
+
+/** Env vars that git sets during hooks — must be stripped so test subprocesses use their own repo. */
+const GIT_HOOK_ENV_VARS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE", "GIT_QUARANTINE_PATH"];
+
+function cleanGitEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const key of GIT_HOOK_ENV_VARS) {
+    delete env[key];
+  }
+  return env;
+}
 
 /** Create a bare git repo and a clone to work in. Returns { bare, clone }. */
 async function makeTestRepo(): Promise<{ bare: string; clone: string }> {
@@ -25,7 +36,7 @@ async function run(args: string[], cwd?: string): Promise<void> {
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      ...process.env,
+      ...cleanGitEnv(),
       GIT_AUTHOR_NAME: "test",
       GIT_AUTHOR_EMAIL: "test@test",
       GIT_COMMITTER_NAME: "test",
@@ -44,6 +55,7 @@ async function currentBranch(cwd: string): Promise<string> {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: cleanGitEnv(),
   });
   await proc.exited;
   return (await new Response(proc.stdout).text()).trim();

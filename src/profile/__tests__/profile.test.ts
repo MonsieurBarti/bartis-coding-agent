@@ -1,13 +1,13 @@
-import { describe, test, expect } from "bun:test";
-import { writeFile, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-  parseProfile,
-  loadProfile,
-  ProfileLoadError,
-  PipelineProfileSchema,
   DEFAULT_TOOLS,
+  loadProfile,
+  PipelineProfileSchema,
+  ProfileLoadError,
+  parseProfile,
 } from "../index";
 
 describe("parseProfile", () => {
@@ -103,7 +103,7 @@ commands:
 });
 
 describe("loadProfile", () => {
-  const tmpBase = join(tmpdir(), "bca-profile-test-" + Date.now());
+  const tmpBase = join(tmpdir(), `bca-profile-test-${Date.now()}`);
 
   test("loads valid YAML from .pi/pipeline.yaml", async () => {
     const projectRoot = join(tmpBase, "valid");
@@ -152,10 +152,7 @@ project:
   test("throws ProfileLoadError for invalid YAML", async () => {
     const projectRoot = join(tmpBase, "invalid-yaml");
     await mkdir(join(projectRoot, ".pi"), { recursive: true });
-    await writeFile(
-      join(projectRoot, ".pi/pipeline.yaml"),
-      `{{{not valid yaml`,
-    );
+    await writeFile(join(projectRoot, ".pi/pipeline.yaml"), `{{{not valid yaml`);
 
     try {
       await loadProfile(projectRoot);

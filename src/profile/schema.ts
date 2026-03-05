@@ -4,14 +4,7 @@ import { z } from "zod";
  * Known tools available to the agent.
  * Deterministic nodes use a subset; agent nodes get the curated list.
  */
-export const ToolName = z.enum([
-  "read",
-  "write",
-  "edit",
-  "bash",
-  "grep",
-  "glob",
-]);
+export const ToolName = z.enum(["read", "write", "edit", "bash", "grep", "glob"]);
 
 export const ProjectSchema = z.object({
   language: z.string(),
@@ -36,7 +29,14 @@ export const PrSchema = z.object({
   template: z.string().optional(),
 });
 
-export const DEFAULT_TOOLS: readonly ToolName[] = ["read", "write", "edit", "bash", "grep", "glob"] as const;
+export const DEFAULT_TOOLS: readonly ToolName[] = [
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "grep",
+  "glob",
+] as const;
 
 export const PipelineProfileSchema = z.object({
   project: ProjectSchema,

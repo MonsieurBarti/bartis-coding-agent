@@ -1,13 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { PipelineProfileSchema, type PipelineProfile } from "./schema";
+import { type PipelineProfile, PipelineProfileSchema } from "./schema";
 
 /** Default config file path relative to project root */
 const CONFIG_FILENAME = ".pi/pipeline.yaml";
 
 export class ProfileLoadError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
     super(message);
     this.name = "ProfileLoadError";
   }
@@ -43,9 +46,7 @@ export async function loadProfile(
 
   const result = PipelineProfileSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
+    const issues = result.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new ProfileLoadError(`Validation failed for ${filePath}:\n${issues}`);
   }
 

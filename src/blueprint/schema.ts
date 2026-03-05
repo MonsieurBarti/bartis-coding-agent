@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { ContextConfigSchema } from "./context";
 
-export const NodeType = z.enum(["deterministic", "agent", "git-setup", "ci-gate", "understand", "fix"]);
+export const NodeType = z.enum([
+  "deterministic",
+  "agent",
+  "git-setup",
+  "ci-gate",
+  "understand",
+  "fix",
+]);
 
 export const BlueprintNodeSchema = z.discriminatedUnion("type", [
   z.object({

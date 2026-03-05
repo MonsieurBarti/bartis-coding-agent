@@ -1,6 +1,6 @@
-import { describe, test, expect } from "bun:test";
-import { runFeedback, formatFeedback, type FeedbackResult } from "../index";
+import { describe, expect, test } from "bun:test";
 import { parseProfile } from "../../profile";
+import { type FeedbackResult, formatFeedback, runFeedback } from "../index";
 
 function makeProfile(commands: { lint?: string; typecheck?: string }) {
   const lines = ["project:", "  language: typescript"];

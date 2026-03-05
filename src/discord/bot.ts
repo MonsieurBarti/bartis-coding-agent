@@ -1,15 +1,7 @@
-import {
-  Client,
-  Events,
-  GatewayIntentBits,
-  type Message,
-} from "discord.js";
-import { loadConfig, type DiscordConfig } from "./config.ts";
+import { Client, Events, GatewayIntentBits, type Message } from "discord.js";
+import { type ConvoyDispatchResult, dispatchConvoy } from "../dispatch/convoy.ts";
+import { type DiscordConfig, loadConfig } from "./config.ts";
 import { parseMessage } from "./parser.ts";
-import {
-  dispatchConvoy,
-  type ConvoyDispatchResult,
-} from "../dispatch/convoy.ts";
 
 /**
  * Run the full convoy pipeline for a Discord request:
@@ -30,9 +22,7 @@ async function handleTask(
     args: task,
     onPoll: (status) => {
       const secs = Math.round(status.elapsed / 1000);
-      onStatus?.(
-        `Convoy \`${status.convoyId}\`: ${status.status} (${secs}s elapsed)`,
-      );
+      onStatus?.(`Convoy \`${status.convoyId}\`: ${status.status} (${secs}s elapsed)`);
     },
   });
 }
@@ -75,7 +65,7 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
     if (!parsed) {
       await message.reply(
         "Usage: `@bot <repo-path> <task description>`\n" +
-        "Example: `@bot /path/to/project Fix the login page styling`",
+          "Example: `@bot /path/to/project Fix the login page styling`",
       );
       return;
     }
@@ -103,7 +93,7 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
       } else {
         await message.reply(
           `Pipeline failed for issue \`${result.issueId}\` (convoy \`${result.convoyId}\`):\n` +
-          `${result.summary}\n\`\`\`\n${result.error}\n\`\`\``,
+            `${result.summary}\n\`\`\`\n${result.error}\n\`\`\``,
         );
       }
     } catch (err) {

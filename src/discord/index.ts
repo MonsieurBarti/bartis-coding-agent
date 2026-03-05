@@ -1,8 +1,8 @@
 export { startBot } from "./bot.ts";
-export { loadConfig, type DiscordConfig } from "./config.ts";
-export { parseMessage, type ParsedRequest } from "./parser.ts";
 export {
-  workCommand,
-  handleWorkCommand,
   handleWorkAutocomplete,
+  handleWorkCommand,
+  workCommand,
 } from "./commands.ts";
+export { type DiscordConfig, loadConfig } from "./config.ts";
+export { type ParsedRequest, parseMessage } from "./parser.ts";

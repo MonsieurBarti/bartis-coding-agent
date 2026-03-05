@@ -1,11 +1,11 @@
-import { describe, test, expect } from "bun:test";
-import {
-  renderTemplate,
-  buildPrBody,
-  buildCreatePrCommand,
-  type CreatePrContext,
-} from "../create-pr";
+import { describe, expect, test } from "bun:test";
 import { parseProfile } from "../../profile";
+import {
+  buildCreatePrCommand,
+  buildPrBody,
+  type CreatePrContext,
+  renderTemplate,
+} from "../create-pr";
 
 const PROFILE_YAML = `
 project:

@@ -104,9 +104,7 @@ export async function runFeedback(
   }
 
   // Run all checks in parallel
-  const results = await Promise.all(
-    checks.map((c) => runCheck(c.name, c.command, cwd, timeoutMs)),
-  );
+  const results = await Promise.all(checks.map((c) => runCheck(c.name, c.command, cwd, timeoutMs)));
 
   const durationMs = Math.round(performance.now() - start);
   const ok = results.every((r) => r.ok);

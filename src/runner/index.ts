@@ -1,1 +1,1 @@
-export { runPiAgent, type RunPiAgentOptions, type RunPiAgentResult } from "./runner";
+export { type RunPiAgentOptions, type RunPiAgentResult, runPiAgent } from "./runner";

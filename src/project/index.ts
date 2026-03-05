@@ -1,13 +1,12 @@
 export {
-  ProjectEntrySchema,
-  ProjectRegistrySchema,
-  type ProjectEntry,
-  type ProjectRegistry,
-} from "./schema";
-
-export {
-  loadProjectRegistry,
-  parseProjectRegistry,
   getProject,
+  loadProjectRegistry,
   ProjectRegistryLoadError,
+  parseProjectRegistry,
 } from "./loader";
+export {
+  type ProjectEntry,
+  ProjectEntrySchema,
+  type ProjectRegistry,
+  ProjectRegistrySchema,
+} from "./schema";

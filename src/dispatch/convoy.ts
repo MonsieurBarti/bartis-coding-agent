@@ -187,14 +187,7 @@ function sleep(ms: number): Promise<void> {
 export async function dispatchConvoy(
   options: ConvoyDispatchOptions,
 ): Promise<ConvoyDispatchResult> {
-  const {
-    task,
-    rig,
-    args,
-    pollIntervalMs = 10_000,
-    timeoutMs = 600_000,
-    onPoll,
-  } = options;
+  const { task, rig, args, pollIntervalMs = 10_000, timeoutMs = 600_000, onPoll } = options;
 
   // 1. Create issue
   const issueId = await createIssue(`Discord: ${task} (rig: ${rig})`);

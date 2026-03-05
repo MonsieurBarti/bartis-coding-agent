@@ -1,11 +1,11 @@
-import { loadProfile } from "../profile";
 import {
+  type EngineEvents,
+  type EngineResult,
   execute,
   loadBlueprint,
   PiAgentRunner,
-  type EngineEvents,
-  type EngineResult,
 } from "../blueprint";
+import { loadProfile } from "../profile";
 import { buildDefaultBlueprint } from "./default-blueprint";
 
 export interface DispatchOptions {
@@ -39,16 +39,8 @@ export interface DispatchResult {
  * 3. Wires the PiAgentRunner as the agent backend
  * 4. Runs the blueprint engine to completion
  */
-export async function dispatch(
-  options: DispatchOptions,
-): Promise<DispatchResult> {
-  const {
-    task,
-    projectRoot,
-    cwd = projectRoot,
-    blueprintPath,
-    events,
-  } = options;
+export async function dispatch(options: DispatchOptions): Promise<DispatchResult> {
+  const { task, projectRoot, cwd = projectRoot, blueprintPath, events } = options;
 
   // 1. Load project profile
   const profile = await loadProfile(projectRoot);

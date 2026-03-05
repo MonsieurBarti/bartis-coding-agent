@@ -13,19 +13,13 @@ import type { Blueprint } from "../blueprint";
  * @param task - Human-readable task description
  * @param testCmd - Shell command to run tests (from profile.commands.test)
  */
-export function buildDefaultBlueprint(
-  task: string,
-  testCmd?: string,
-): Blueprint {
+export function buildDefaultBlueprint(task: string, testCmd?: string): Blueprint {
   const nodes: Blueprint["nodes"] = {
     understand: {
       type: "understand" as const,
       task,
       context: {
-        queries: [
-          { kind: "stats" as const },
-          { kind: "structure" as const },
-        ],
+        queries: [{ kind: "stats" as const }, { kind: "structure" as const }],
       },
       planFile: ".pi/plan.md",
       deps: [],

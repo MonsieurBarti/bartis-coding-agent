@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { registerCodeGraphTools } from "../code-graph";
 
 /**
@@ -31,11 +31,7 @@ function createMockPi() {
 /**
  * Mock Bun.spawn to capture CLI invocations.
  */
-function mockSpawn(
-  stdout: string,
-  exitCode: number = 0,
-  stderr: string = "",
-) {
+function mockSpawn(stdout: string, exitCode: number = 0, stderr: string = "") {
   const calls: string[][] = [];
   const original = Bun.spawn;
 
@@ -85,20 +81,11 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("execute: function @ engine.ts:37");
       try {
-        const result = await tool.execute(
-          "tc-1",
-          { symbol: "execute" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        const result = await tool.execute("tc-1", { symbol: "execute" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(spawner.calls).toHaveLength(1);
-        expect(spawner.calls[0]).toEqual([
-          "code-graph",
-          "find",
-          "execute",
-          "/project",
-        ]);
+        expect(spawner.calls[0]).toEqual(["code-graph", "find", "execute", "/project"]);
         expect(result.content[0].text).toContain("execute");
       } finally {
         spawner.restore();
@@ -112,13 +99,9 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("execute: function @ engine.ts:37");
       try {
-        await tool.execute(
-          "tc-1",
-          { symbol: "execute", kind: "function" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        await tool.execute("tc-1", { symbol: "execute", kind: "function" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(spawner.calls[0]).toEqual([
           "code-graph",
           "find",
@@ -139,13 +122,9 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("result");
       try {
-        await tool.execute(
-          "tc-1",
-          { symbol: "Foo", path: "src/bar" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        await tool.execute("tc-1", { symbol: "Foo", path: "src/bar" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(spawner.calls[0]).toContain("--file");
         expect(spawner.calls[0]).toContain("src/bar");
       } finally {
@@ -160,13 +139,9 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("");
       try {
-        const result = await tool.execute(
-          "tc-1",
-          { symbol: "nonexistent" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        const result = await tool.execute("tc-1", { symbol: "nonexistent" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(result.content[0].text).toBe("(no results)");
       } finally {
         spawner.restore();
@@ -182,13 +157,7 @@ describe("code-graph extension", () => {
       try {
         let threw = false;
         try {
-          await tool.execute(
-            "tc-1",
-            { symbol: "x" },
-            undefined,
-            undefined,
-            { cwd: "/project" },
-          );
+          await tool.execute("tc-1", { symbol: "x" }, undefined, undefined, { cwd: "/project" });
         } catch (err: unknown) {
           threw = true;
           expect((err as Error).message).toContain("code-graph failed");
@@ -208,19 +177,10 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("definition: ...\nreferences: ...");
       try {
-        await tool.execute(
-          "tc-1",
-          { symbol: "Blueprint" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
-        expect(spawner.calls[0]).toEqual([
-          "code-graph",
-          "context",
-          "Blueprint",
-          "/project",
-        ]);
+        await tool.execute("tc-1", { symbol: "Blueprint" }, undefined, undefined, {
+          cwd: "/project",
+        });
+        expect(spawner.calls[0]).toEqual(["code-graph", "context", "Blueprint", "/project"]);
       } finally {
         spawner.restore();
       }
@@ -235,19 +195,10 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("engine.ts:37 (call)");
       try {
-        await tool.execute(
-          "tc-1",
-          { symbol: "execute" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
-        expect(spawner.calls[0]).toEqual([
-          "code-graph",
-          "refs",
-          "execute",
-          "/project",
-        ]);
+        await tool.execute("tc-1", { symbol: "execute" }, undefined, undefined, {
+          cwd: "/project",
+        });
+        expect(spawner.calls[0]).toEqual(["code-graph", "refs", "execute", "/project"]);
       } finally {
         spawner.restore();
       }
@@ -283,13 +234,9 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("");
       try {
-        const result = await tool.execute(
-          "tc-1",
-          { symbol: "unused" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        const result = await tool.execute("tc-1", { symbol: "unused" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(result.content[0].text).toBe("(no references found)");
       } finally {
         spawner.restore();
@@ -305,19 +252,10 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("3 files affected\nengine.ts\nschema.ts\nindex.ts");
       try {
-        await tool.execute(
-          "tc-1",
-          { symbol: "Blueprint" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
-        expect(spawner.calls[0]).toEqual([
-          "code-graph",
-          "impact",
-          "Blueprint",
-          "/project",
-        ]);
+        await tool.execute("tc-1", { symbol: "Blueprint" }, undefined, undefined, {
+          cwd: "/project",
+        });
+        expect(spawner.calls[0]).toEqual(["code-graph", "impact", "Blueprint", "/project"]);
       } finally {
         spawner.restore();
       }
@@ -330,13 +268,9 @@ describe("code-graph extension", () => {
 
       const spawner = mockSpawn("");
       try {
-        const result = await tool.execute(
-          "tc-1",
-          { symbol: "isolated" },
-          undefined,
-          undefined,
-          { cwd: "/project" },
-        );
+        const result = await tool.execute("tc-1", { symbol: "isolated" }, undefined, undefined, {
+          cwd: "/project",
+        });
         expect(result.content[0].text).toBe("(no dependents found)");
       } finally {
         spawner.restore();

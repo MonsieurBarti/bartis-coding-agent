@@ -1,23 +1,15 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
-import {
-  createIssue,
-  createConvoy,
-  slingWork,
-  getConvoyStatus,
-  dispatchConvoy,
-} from "../convoy";
+import { describe, expect, test } from "bun:test";
+import { createConvoy, createIssue, dispatchConvoy, getConvoyStatus, slingWork } from "../convoy";
 
 // Mock Bun.spawn for CLI calls
 const originalSpawn = Bun.spawn;
 
-function mockSpawn(
-  responses: Array<{ stdout: string; stderr?: string; exitCode?: number }>,
-) {
+function mockSpawn(responses: Array<{ stdout: string; stderr?: string; exitCode?: number }>) {
   let callIndex = 0;
   const calls: Array<string[]> = [];
 
   // @ts-expect-error — mock override
-  Bun.spawn = (cmd: string[], opts?: Record<string, unknown>) => {
+  Bun.spawn = (cmd: string[], _opts?: Record<string, unknown>) => {
     calls.push(cmd);
     const resp = responses[callIndex] ?? { stdout: "", exitCode: 0 };
     callIndex++;
@@ -45,14 +37,17 @@ function mockSpawn(
     };
   };
 
-  return { calls, restore: () => { Bun.spawn = originalSpawn; } };
+  return {
+    calls,
+    restore: () => {
+      Bun.spawn = originalSpawn;
+    },
+  };
 }
 
 describe("createIssue", () => {
   test("parses issue ID from bd create output", async () => {
-    const { restore } = mockSpawn([
-      { stdout: JSON.stringify({ id: "bca-abc123" }) },
-    ]);
+    const { restore } = mockSpawn([{ stdout: JSON.stringify({ id: "bca-abc123" }) }]);
     try {
       const id = await createIssue("Fix login bug");
       expect(id).toBe("bca-abc123");
@@ -62,9 +57,7 @@ describe("createIssue", () => {
   });
 
   test("parses issue ID from array response", async () => {
-    const { restore } = mockSpawn([
-      { stdout: JSON.stringify([{ id: "bca-def456" }]) },
-    ]);
+    const { restore } = mockSpawn([{ stdout: JSON.stringify([{ id: "bca-def456" }]) }]);
     try {
       const id = await createIssue("Add tests", "bug");
       expect(id).toBe("bca-def456");
@@ -74,9 +67,7 @@ describe("createIssue", () => {
   });
 
   test("passes issue type to bd create", async () => {
-    const { calls, restore } = mockSpawn([
-      { stdout: JSON.stringify({ id: "bca-typed" }) },
-    ]);
+    const { calls, restore } = mockSpawn([{ stdout: JSON.stringify({ id: "bca-typed" }) }]);
     try {
       await createIssue("Fix crash", "bug");
       expect(calls[0]).toEqual(["bd", "create", "--json", "-t", "bug", "Fix crash"]);
@@ -86,9 +77,7 @@ describe("createIssue", () => {
   });
 
   test("throws on bd create failure", async () => {
-    const { restore } = mockSpawn([
-      { stdout: "", stderr: "database error", exitCode: 1 },
-    ]);
+    const { restore } = mockSpawn([{ stdout: "", stderr: "database error", exitCode: 1 }]);
     try {
       let caught: Error | null = null;
       try {
@@ -106,9 +95,7 @@ describe("createIssue", () => {
 
 describe("createConvoy", () => {
   test("extracts convoy ID from hq-* pattern", async () => {
-    const { restore } = mockSpawn([
-      { stdout: "Created convoy hq-convoy123 tracking 1 issue" },
-    ]);
+    const { restore } = mockSpawn([{ stdout: "Created convoy hq-convoy123 tracking 1 issue" }]);
     try {
       const id = await createConvoy("bca-abc", "Fix login");
       expect(id).toBe("hq-convoy123");
@@ -118,9 +105,7 @@ describe("createConvoy", () => {
   });
 
   test("extracts convoy ID from JSON response", async () => {
-    const { restore } = mockSpawn([
-      { stdout: JSON.stringify({ id: "hq-json456" }) },
-    ]);
+    const { restore } = mockSpawn([{ stdout: JSON.stringify({ id: "hq-json456" }) }]);
     try {
       const id = await createConvoy("bca-abc", "Fix login");
       expect(id).toBe("hq-json456");
@@ -130,9 +115,7 @@ describe("createConvoy", () => {
   });
 
   test("throws when no convoy ID found", async () => {
-    const { restore } = mockSpawn([
-      { stdout: "Something happened but no ID" },
-    ]);
+    const { restore } = mockSpawn([{ stdout: "Something happened but no ID" }]);
     try {
       let caught: Error | null = null;
       try {
@@ -163,9 +146,7 @@ describe("slingWork", () => {
     const { calls, restore } = mockSpawn([{ stdout: "Slung!" }]);
     try {
       await slingWork("bca-abc", "myrig", "focus on tests");
-      expect(calls[0]).toEqual([
-        "gt", "sling", "bca-abc", "myrig", "--args", "focus on tests",
-      ]);
+      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig", "--args", "focus on tests"]);
     } finally {
       restore();
     }
@@ -178,9 +159,7 @@ describe("getConvoyStatus", () => {
       {
         stdout: JSON.stringify({
           status: "active",
-          members: [
-            { id: "bca-abc", status: "in_progress" },
-          ],
+          members: [{ id: "bca-abc", status: "in_progress" }],
         }),
       },
     ]);
@@ -196,9 +175,7 @@ describe("getConvoyStatus", () => {
   });
 
   test("returns null on failure", async () => {
-    const { restore } = mockSpawn([
-      { stdout: "", exitCode: 1 },
-    ]);
+    const { restore } = mockSpawn([{ stdout: "", exitCode: 1 }]);
     try {
       const status = await getConvoyStatus("hq-nonexistent");
       expect(status).toBeNull();

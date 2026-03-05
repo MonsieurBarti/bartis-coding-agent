@@ -2,13 +2,11 @@ import { readFile } from "node:fs/promises";
 import {
   createAgentSession,
   DefaultResourceLoader,
-  SessionManager,
   runPrintMode,
-  type CreateAgentSessionOptions,
-  type CreateAgentSessionResult,
+  SessionManager,
 } from "@mariozechner/pi-coding-agent";
-import { loadProfile, type PipelineProfile } from "../profile";
 import { registerCodeGraphTools } from "../extensions";
+import { loadProfile, type PipelineProfile } from "../profile";
 
 export interface RunPiAgentOptions {
   /** Human-readable task description for the agent */
@@ -37,9 +35,7 @@ export async function buildPrompt(
   const parts: string[] = [];
 
   // Profile context
-  parts.push(
-    `Project: ${profile.project.language} (${profile.project.packageManager})`,
-  );
+  parts.push(`Project: ${profile.project.language} (${profile.project.packageManager})`);
   if (profile.rules.length > 0) {
     parts.push(`Rules:\n${profile.rules.map((r) => `- ${r}`).join("\n")}`);
   }
@@ -67,9 +63,7 @@ export async function buildPrompt(
  * Creates an in-memory session, sends the task as a prompt, waits for
  * completion, and returns the exit code.
  */
-export async function runPiAgent(
-  options: RunPiAgentOptions,
-): Promise<RunPiAgentResult> {
+export async function runPiAgent(options: RunPiAgentOptions): Promise<RunPiAgentResult> {
   const { task, projectRoot, blueprintPath, cwd = projectRoot } = options;
 
   // Load project profile
@@ -81,9 +75,7 @@ export async function runPiAgent(
   // Create resource loader with code-graph tools
   const resourceLoader = new DefaultResourceLoader({
     cwd,
-    extensionFactories: [
-      (pi) => registerCodeGraphTools(pi),
-    ],
+    extensionFactories: [(pi) => registerCodeGraphTools(pi)],
   });
   await resourceLoader.reload();
 
@@ -103,10 +95,7 @@ export async function runPiAgent(
 
     return { exitCode: 0 };
   } catch (error) {
-    console.error(
-      "Pi agent failed:",
-      error instanceof Error ? error.message : error,
-    );
+    console.error("Pi agent failed:", error instanceof Error ? error.message : error);
     return { exitCode: 1 };
   } finally {
     session.dispose();

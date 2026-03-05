@@ -1,11 +1,6 @@
-import { describe, test, expect } from "bun:test";
-import {
-  parseBlueprint,
-  execute,
-  type AgentRunner,
-  type Blueprint,
-} from "../index";
+import { describe, expect, test } from "bun:test";
 import { parseProfile } from "../../profile";
+import { type AgentRunner, type Blueprint, execute, parseBlueprint } from "../index";
 
 /** Tracks calls to the mock runner. */
 interface RunCall {
@@ -14,9 +9,10 @@ interface RunCall {
 }
 
 /** Create a mock runner that records calls and optionally throws. */
-function mockRunner(
-  behavior?: (call: RunCall, callIndex: number) => void,
-): { runner: AgentRunner; calls: RunCall[] } {
+function mockRunner(behavior?: (call: RunCall, callIndex: number) => void): {
+  runner: AgentRunner;
+  calls: RunCall[];
+} {
   const calls: RunCall[] = [];
   return {
     runner: {

@@ -6,33 +6,28 @@
  * use them as embed JSON in message payloads.
  */
 
+import { collectTestResults, deriveStage, fetchBeadStatus, fetchConvoyStatus } from "./collector";
 import type {
-  PipelineStatus,
-  PipelineStage,
-  StatusEmbed,
+  ConvoyStatus,
   EmbedField,
+  PipelineStage,
+  PipelineStatus,
+  StatusEmbed,
   TestResults,
   TokenUsage,
-  ConvoyStatus,
 } from "./types";
-import {
-  fetchBeadStatus,
-  fetchConvoyStatus,
-  deriveStage,
-  collectTestResults,
-} from "./collector";
 
 /** Stage display configuration. */
 const STAGE_CONFIG: Record<PipelineStage, { emoji: string; color: number }> = {
-  queued:        { emoji: "\u{23F3}", color: 0x95a5a6 },  // hourglass, grey
-  designing:     { emoji: "\u{1F4D0}", color: 0x3498db },  // triangular ruler, blue
-  implementing:  { emoji: "\u{1F528}", color: 0xe67e22 },  // hammer, orange
-  testing:       { emoji: "\u{1F9EA}", color: 0x9b59b6 },  // test tube, purple
-  reviewing:     { emoji: "\u{1F50D}", color: 0xf1c40f },  // magnifying glass, yellow
-  merging:       { emoji: "\u{1F500}", color: 0x1abc9c },  // shuffle, teal
-  complete:      { emoji: "\u{2705}", color: 0x2ecc71 },   // check, green
-  failed:        { emoji: "\u{274C}", color: 0xe74c3c },   // X, red
-  unknown:       { emoji: "\u{2753}", color: 0x95a5a6 },   // question, grey
+  queued: { emoji: "\u{23F3}", color: 0x95a5a6 }, // hourglass, grey
+  designing: { emoji: "\u{1F4D0}", color: 0x3498db }, // triangular ruler, blue
+  implementing: { emoji: "\u{1F528}", color: 0xe67e22 }, // hammer, orange
+  testing: { emoji: "\u{1F9EA}", color: 0x9b59b6 }, // test tube, purple
+  reviewing: { emoji: "\u{1F50D}", color: 0xf1c40f }, // magnifying glass, yellow
+  merging: { emoji: "\u{1F500}", color: 0x1abc9c }, // shuffle, teal
+  complete: { emoji: "\u{2705}", color: 0x2ecc71 }, // check, green
+  failed: { emoji: "\u{274C}", color: 0xe74c3c }, // X, red
+  unknown: { emoji: "\u{2753}", color: 0x95a5a6 }, // question, grey
 };
 
 /**
@@ -51,14 +46,10 @@ export async function buildStatusEmbed(
   },
 ): Promise<StatusEmbed> {
   const startedAt = options?.startedAt ?? Date.now();
-  const [bead, convoy] = await Promise.all([
-    fetchBeadStatus(beadId),
-    fetchConvoyStatus(),
-  ]);
+  const [bead, convoy] = await Promise.all([fetchBeadStatus(beadId), fetchConvoyStatus()]);
 
   const stage = deriveStage(bead.status);
-  const testResults =
-    options?.testResults ?? (await collectTestResults(options?.testCommand));
+  const testResults = options?.testResults ?? (await collectTestResults(options?.testCommand));
 
   const status: PipelineStatus = {
     bead,
@@ -189,11 +180,12 @@ function formatTokens(usage: TokenUsage): string {
 
 function formatConvoy(convoy: ConvoyStatus): string {
   const lines = convoy.members.slice(0, 5).map((m) => {
-    const icon = m.status === "closed" || m.status === "complete"
-      ? "\u{2705}"
-      : m.status === "failed"
-        ? "\u{274C}"
-        : "\u{1F7E1}";
+    const icon =
+      m.status === "closed" || m.status === "complete"
+        ? "\u{2705}"
+        : m.status === "failed"
+          ? "\u{274C}"
+          : "\u{1F7E1}";
     return `${icon} \`${m.id}\` ${m.title}`;
   });
   if (convoy.members.length > 5) {

@@ -1,17 +1,17 @@
-import { parse as parseYaml } from "yaml";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { BlueprintSchema, type Blueprint, type NodeState } from "./schema";
-import { topoSort } from "./topo";
-import {
-  assembleContext,
-  SubprocessExecutor,
-  type CodeGraphExecutor,
-  type AssembledContext,
-} from "./context";
-import type { AgentRunner } from "./agent";
-import { runFeedback, formatFeedback } from "../feedback/feedback";
+import { parse as parseYaml } from "yaml";
+import { formatFeedback, runFeedback } from "../feedback/feedback";
 import type { PipelineProfile } from "../profile";
+import type { AgentRunner } from "./agent";
+import {
+  type AssembledContext,
+  assembleContext,
+  type CodeGraphExecutor,
+  SubprocessExecutor,
+} from "./context";
+import { type Blueprint, BlueprintSchema, type NodeState } from "./schema";
+import { topoSort } from "./topo";
 
 export interface EngineEvents {
   onNodeStart?: (id: string, node: NodeState) => void;
@@ -67,8 +67,13 @@ export async function execute(
 ): Promise<EngineResult> {
   // Support legacy (events-only) and new (options) signatures
   const options: EngineOptions =
-    optionsOrEvents && ("events" in optionsOrEvents || "projectPath" in optionsOrEvents || "codeGraphExecutor" in optionsOrEvents || "agentRunner" in optionsOrEvents || "profile" in optionsOrEvents)
-      ? optionsOrEvents as EngineOptions
+    optionsOrEvents &&
+    ("events" in optionsOrEvents ||
+      "projectPath" in optionsOrEvents ||
+      "codeGraphExecutor" in optionsOrEvents ||
+      "agentRunner" in optionsOrEvents ||
+      "profile" in optionsOrEvents)
+      ? (optionsOrEvents as EngineOptions)
       : { events: optionsOrEvents as EngineEvents | undefined };
 
   const { events, projectPath, codeGraphExecutor, agentRunner, profile } = options;
@@ -115,17 +120,9 @@ export async function execute(
       } else if (node.type === "understand") {
         const executor = codeGraphExecutor ?? new SubprocessExecutor();
         const resolvedPath = projectPath ?? process.cwd();
-        const assembled = await assembleContext(
-          node.context,
-          resolvedPath,
-          executor,
-        );
+        const assembled = await assembleContext(node.context, resolvedPath, executor);
         events?.onContextAssembled?.(id, assembled);
-        const plan = await runUnderstand(
-          node.task,
-          assembled,
-          node.planFile,
-        );
+        const plan = await runUnderstand(node.task, assembled, node.planFile);
         events?.onPlanWritten?.(id, node.planFile, plan);
       } else if (node.type === "fix") {
         // Fix node — assemble context if configured, then run test/fix loop
@@ -133,11 +130,7 @@ export async function execute(
         if (node.context) {
           const executor = codeGraphExecutor ?? new SubprocessExecutor();
           const resolvedPath = projectPath ?? process.cwd();
-          const assembled = await assembleContext(
-            node.context,
-            resolvedPath,
-            executor,
-          );
+          const assembled = await assembleContext(node.context, resolvedPath, executor);
           events?.onContextAssembled?.(id, assembled);
           if (assembled.text) {
             prompt = `${assembled.text}\n\n${prompt}`;
@@ -150,11 +143,7 @@ export async function execute(
         if (node.context) {
           const executor = codeGraphExecutor ?? new SubprocessExecutor();
           const resolvedPath = projectPath ?? process.cwd();
-          const assembled = await assembleContext(
-            node.context,
-            resolvedPath,
-            executor,
-          );
+          const assembled = await assembleContext(node.context, resolvedPath, executor);
           events?.onContextAssembled?.(id, assembled);
           if (assembled.text) {
             prompt = `${assembled.text}\n\n${prompt}`;
@@ -178,9 +167,7 @@ export async function execute(
     events?.onNodeEnd?.(id, state);
   }
 
-  const success = [...states.values()].every(
-    (s) => s.status === "success",
-  );
+  const success = [...states.values()].every((s) => s.status === "success");
 
   return { blueprint: blueprint.name, states, success };
 }
@@ -219,11 +206,7 @@ async function runDeterministic(command: string): Promise<void> {
  * Create a feature branch and optionally set up a git worktree.
  * Deterministic — no LLM needed.
  */
-async function runGitSetup(
-  branch: string,
-  baseBranch: string,
-  worktree?: string,
-): Promise<void> {
+async function runGitSetup(branch: string, baseBranch: string, worktree?: string): Promise<void> {
   await git(["fetch", "origin", baseBranch]);
 
   if (worktree) {
@@ -235,9 +218,15 @@ async function runGitSetup(
 
 /** Run a git command. Throws on non-zero exit. */
 async function git(args: string[]): Promise<void> {
+  const env = { ...process.env };
+  // Strip hook-injected git env vars so commands target the correct repo
+  for (const key of ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE", "GIT_QUARANTINE_PATH"]) {
+    delete env[key];
+  }
   const proc = Bun.spawn(["git", ...args], {
     stdout: "pipe",
     stderr: "pipe",
+    env,
   });
   const [exitCode, , stderr] = await Promise.all([
     proc.exited,
@@ -309,10 +298,7 @@ async function runUnderstand(
  * Combines pre-hydrated codebase context with the task description
  * and instructions to produce a structured implementation plan.
  */
-export function buildUnderstandPrompt(
-  task: string,
-  assembled: AssembledContext,
-): string {
+export function buildUnderstandPrompt(task: string, assembled: AssembledContext): string {
   const sections: string[] = [];
 
   if (assembled.text) {

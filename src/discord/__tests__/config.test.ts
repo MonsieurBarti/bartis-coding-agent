@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../config.ts";
 
 describe("loadConfig", () => {

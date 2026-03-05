@@ -1,17 +1,17 @@
 import {
-  SlashCommandBuilder,
-  type ChatInputCommandInteraction,
   type AutocompleteInteraction,
+  type ChatInputCommandInteraction,
   EmbedBuilder,
+  SlashCommandBuilder,
 } from "discord.js";
-import { loadProjectRegistry, getProject, type ProjectRegistry } from "../project";
-import { buildStatusEmbed } from "../status/embed";
 import {
   createIssue as convoyCreateIssue,
   createConvoy,
-  slingWork,
   findPrUrl,
+  slingWork,
 } from "../dispatch/convoy";
+import { getProject, loadProjectRegistry, type ProjectRegistry } from "../project";
+import { buildStatusEmbed } from "../status/embed";
 
 const WORK_TYPES = [
   { name: "Feature", value: "feature" },
@@ -38,10 +38,7 @@ export const workCommand = new SlashCommandBuilder()
       .setAutocomplete(true),
   )
   .addStringOption((opt) =>
-    opt
-      .setName("description")
-      .setDescription("What needs to be done")
-      .setRequired(true),
+    opt.setName("description").setDescription("What needs to be done").setRequired(true),
   );
 
 let registryCache: { registry: ProjectRegistry; loadedAt: number } | null = null;
@@ -57,9 +54,7 @@ async function getRegistry(): Promise<ProjectRegistry> {
   return registry;
 }
 
-export async function handleWorkAutocomplete(
-  interaction: AutocompleteInteraction,
-): Promise<void> {
+export async function handleWorkAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   const focused = interaction.options.getFocused();
   try {
     const registry = await getRegistry();
@@ -88,10 +83,7 @@ async function createIssueForProject(
   return convoyCreateIssue(title, bdType);
 }
 
-async function createConvoyAndSling(
-  issueId: string,
-  projectName: string,
-): Promise<string> {
+async function createConvoyAndSling(issueId: string, projectName: string): Promise<string> {
   const convoyId = await createConvoy(issueId, projectName);
   await slingWork(issueId, projectName);
   return convoyId;
@@ -105,9 +97,7 @@ function statusEmbedToDiscord(embed: {
   footer?: { text: string };
   timestamp?: string;
 }): EmbedBuilder {
-  const builder = new EmbedBuilder()
-    .setTitle(embed.title)
-    .setColor(embed.color);
+  const builder = new EmbedBuilder().setTitle(embed.title).setColor(embed.color);
   if (embed.description) builder.setDescription(embed.description);
   for (const field of embed.fields) {
     builder.addFields({ name: field.name, value: field.value, inline: field.inline });
@@ -153,9 +143,7 @@ async function pollForCompletion(
   }
 }
 
-export async function handleWorkCommand(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
+export async function handleWorkCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const type = interaction.options.getString("type", true);
   const projectName = interaction.options.getString("project", true);
   const description = interaction.options.getString("description", true);

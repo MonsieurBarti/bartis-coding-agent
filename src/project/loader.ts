@@ -1,13 +1,16 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { ProjectRegistrySchema, type ProjectRegistry, type ProjectEntry } from "./schema";
+import { type ProjectEntry, type ProjectRegistry, ProjectRegistrySchema } from "./schema";
 
 const DEFAULT_PATH = resolve(homedir(), ".bca/projects.yaml");
 
 export class ProjectRegistryLoadError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
     super(message);
     this.name = "ProjectRegistryLoadError";
   }
@@ -20,9 +23,7 @@ export class ProjectRegistryLoadError extends Error {
  * @returns Validated ProjectRegistry with defaults applied
  * @throws ProjectRegistryLoadError if the file can't be read or validation fails
  */
-export async function loadProjectRegistry(
-  configPath?: string,
-): Promise<ProjectRegistry> {
+export async function loadProjectRegistry(configPath?: string): Promise<ProjectRegistry> {
   const filePath = configPath ?? DEFAULT_PATH;
 
   let raw: string;
@@ -41,9 +42,7 @@ export async function loadProjectRegistry(
 
   const result = ProjectRegistrySchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
+    const issues = result.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new ProjectRegistryLoadError(`Validation failed for ${filePath}:\n${issues}`);
   }
 
