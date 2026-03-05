@@ -6,6 +6,12 @@ import {
 } from "discord.js";
 import { loadProjectRegistry, getProject, type ProjectRegistry } from "../project";
 import { buildStatusEmbed } from "../status/embed";
+import {
+  createIssue as convoyCreateIssue,
+  createConvoy,
+  slingWork,
+  findPrUrl,
+} from "../dispatch/convoy";
 
 const WORK_TYPES = [
   { name: "Feature", value: "feature" },
@@ -72,64 +78,23 @@ export async function handleWorkAutocomplete(
   }
 }
 
-async function createIssue(
+async function createIssueForProject(
   type: string,
   description: string,
   projectName: string,
 ): Promise<string> {
   const bdType = type === "bugfix" ? "bug" : type === "feature" ? "feature" : "task";
-  const proc = Bun.spawn(
-    [
-      "bd", "create", "--json",
-      "-t", bdType,
-      `[${projectName}] ${description}`,
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
-
-  if (proc.exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`bd create failed (exit ${proc.exitCode}): ${stderr}`);
-  }
-
-  const parsed = JSON.parse(stdout);
-  const id = Array.isArray(parsed) ? parsed[0]?.id : parsed?.id;
-  if (!id) throw new Error(`Failed to parse issue ID from bd output: ${stdout}`);
-  return id;
+  const title = `[${projectName}] ${description}`;
+  return convoyCreateIssue(title, bdType);
 }
 
 async function createConvoyAndSling(
   issueId: string,
   projectName: string,
 ): Promise<string> {
-  // Create convoy for this issue
-  const convoyProc = Bun.spawn(
-    ["gt", "convoy", "create", issueId, "--json"],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const convoyStdout = await new Response(convoyProc.stdout).text();
-  await convoyProc.exited;
-
-  if (convoyProc.exitCode !== 0) {
-    const stderr = await new Response(convoyProc.stderr).text();
-    throw new Error(`gt convoy create failed (exit ${convoyProc.exitCode}): ${stderr}`);
-  }
-
-  // Sling issue to a polecat
-  const slingProc = Bun.spawn(
-    ["gt", "sling", issueId],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  await slingProc.exited;
-
-  if (slingProc.exitCode !== 0) {
-    const stderr = await new Response(slingProc.stderr).text();
-    throw new Error(`gt sling failed (exit ${slingProc.exitCode}): ${stderr}`);
-  }
-
-  return convoyStdout.trim();
+  const convoyId = await createConvoy(issueId, projectName);
+  await slingWork(issueId, projectName);
+  return convoyId;
 }
 
 function statusEmbedToDiscord(embed: {
@@ -188,30 +153,6 @@ async function pollForCompletion(
   }
 }
 
-async function findPrUrl(issueId: string): Promise<string | null> {
-  // Check bd show for PR link in notes/metadata
-  const proc = Bun.spawn(
-    ["bd", "show", issueId, "--json"],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
-
-  if (proc.exitCode === 0) {
-    try {
-      const parsed = JSON.parse(stdout);
-      const bead = Array.isArray(parsed) ? parsed[0] : parsed;
-      // Look for PR URL in notes or metadata
-      const text = JSON.stringify(bead);
-      const match = text.match(/https:\/\/github\.com\/[^\s"]+\/pull\/\d+/);
-      if (match) return match[0];
-    } catch {
-      // ignore
-    }
-  }
-  return null;
-}
-
 export async function handleWorkCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -238,7 +179,7 @@ export async function handleWorkCommand(
 
   try {
     // 1. Create bd issue
-    const issueId = await createIssue(type, description, projectName);
+    const issueId = await createIssueForProject(type, description, projectName);
 
     // 2. Create convoy and sling to polecat
     await createConvoyAndSling(issueId, projectName);

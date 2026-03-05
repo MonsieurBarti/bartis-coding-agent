@@ -73,10 +73,12 @@ async function tryRun(cmd: string, args: string[]): Promise<string | null> {
 
 /**
  * Create a bd issue for the task. Returns the issue ID.
+ *
+ * @param title - Issue title
+ * @param issueType - bd issue type (task, bug, feature, etc.). Defaults to "task".
  */
-export async function createIssue(task: string, repo: string): Promise<string> {
-  const title = `Discord bot task: ${task} (repo: ${repo})`;
-  const stdout = await run("bd", ["create", "--json", "-t", "task", title]);
+export async function createIssue(title: string, issueType: string = "task"): Promise<string> {
+  const stdout = await run("bd", ["create", "--json", "-t", issueType, title]);
   const parsed = JSON.parse(stdout);
   const id = Array.isArray(parsed) ? parsed[0]?.id : parsed?.id;
   if (!id) throw new Error(`Failed to parse issue ID from bd output: ${stdout}`);
@@ -160,7 +162,7 @@ function isFailed(status: string): boolean {
 /**
  * Try to find a PR URL associated with the issue.
  */
-async function findPrUrl(issueId: string): Promise<string | null> {
+export async function findPrUrl(issueId: string): Promise<string | null> {
   const bdOut = await tryRun("bd", ["show", issueId, "--json"]);
   if (bdOut) {
     const match = bdOut.match(/https:\/\/github\.com\/[^\s"]+\/pull\/\d+/);
@@ -195,7 +197,7 @@ export async function dispatchConvoy(
   } = options;
 
   // 1. Create issue
-  const issueId = await createIssue(task, rig);
+  const issueId = await createIssue(`Discord: ${task} (rig: ${rig})`);
 
   // 2. Create convoy
   let convoyId: string;

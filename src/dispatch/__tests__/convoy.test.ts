@@ -54,7 +54,7 @@ describe("createIssue", () => {
       { stdout: JSON.stringify({ id: "bca-abc123" }) },
     ]);
     try {
-      const id = await createIssue("Fix login", "/path/to/repo");
+      const id = await createIssue("Fix login bug");
       expect(id).toBe("bca-abc123");
     } finally {
       restore();
@@ -66,8 +66,20 @@ describe("createIssue", () => {
       { stdout: JSON.stringify([{ id: "bca-def456" }]) },
     ]);
     try {
-      const id = await createIssue("Add tests", "/repo");
+      const id = await createIssue("Add tests", "bug");
       expect(id).toBe("bca-def456");
+    } finally {
+      restore();
+    }
+  });
+
+  test("passes issue type to bd create", async () => {
+    const { calls, restore } = mockSpawn([
+      { stdout: JSON.stringify({ id: "bca-typed" }) },
+    ]);
+    try {
+      await createIssue("Fix crash", "bug");
+      expect(calls[0]).toEqual(["bd", "create", "--json", "-t", "bug", "Fix crash"]);
     } finally {
       restore();
     }
@@ -80,7 +92,7 @@ describe("createIssue", () => {
     try {
       let caught: Error | null = null;
       try {
-        await createIssue("Task", "/repo");
+        await createIssue("Task");
       } catch (err) {
         caught = err as Error;
       }
