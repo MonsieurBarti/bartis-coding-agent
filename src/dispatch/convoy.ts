@@ -1,12 +1,15 @@
 /**
- * Convoy-based dispatch — tracks each Discord request as a convoy.
+ * Convoy-based dispatch — tracks each Discord request through Gas Town.
  *
  * Flow:
  *   1. bd create issue for the task
- *   2. gt convoy create to track it
- *   3. gt sling to dispatch a polecat
- *   4. Poll gt convoy status until landed/failed
- *   5. Return PR link and summary
+ *   2. gt sling to dispatch a polecat (auto-creates convoy)
+ *   3. Poll bd show for issue status until closed/failed
+ *   4. Find PR URL from GitHub branch or bd show
+ *
+ * Note: gt sling auto-creates a convoy named "Work: [issue-title]"
+ * so we don't need to manually create convoys for single-issue dispatch.
+ * Explicit convoy creation (createConvoy) is kept for future batch dispatch.
  */
 
 export interface ConvoyDispatchOptions {
@@ -25,7 +28,7 @@ export interface ConvoyDispatchOptions {
 }
 
 export interface ConvoyPollStatus {
-  convoyId: string;
+  issueId: string;
   status: string;
   elapsed: number;
 }
@@ -33,7 +36,6 @@ export interface ConvoyPollStatus {
 export interface ConvoyDispatchResult {
   success: boolean;
   issueId: string;
-  convoyId: string;
   prUrl?: string;
   summary: string;
   error?: string;
@@ -76,9 +78,17 @@ async function tryRun(cmd: string, args: string[]): Promise<string | null> {
  *
  * @param title - Issue title
  * @param issueType - bd issue type (task, bug, feature, etc.). Defaults to "task".
+ * @param description - Optional detailed description.
  */
-export async function createIssue(title: string, issueType: string = "task"): Promise<string> {
-  const stdout = await run("bd", ["create", "--json", "-t", issueType, title]);
+export async function createIssue(
+  title: string,
+  issueType: string = "task",
+  description?: string,
+): Promise<string> {
+  const args = ["create", "--json", "-t", issueType];
+  if (description) args.push(`--description=${description}`);
+  args.push(title);
+  const stdout = await run("bd", args);
   const parsed = JSON.parse(stdout);
   const id = Array.isArray(parsed) ? parsed[0]?.id : parsed?.id;
   if (!id) throw new Error(`Failed to parse issue ID from bd output: ${stdout}`);
@@ -86,33 +96,14 @@ export async function createIssue(title: string, issueType: string = "task"): Pr
 }
 
 /**
- * Create a convoy tracking the given issue. Returns the convoy ID.
- */
-export async function createConvoy(issueId: string, taskSummary: string): Promise<string> {
-  const name = `Discord: ${taskSummary.slice(0, 60)}`;
-  const stdout = await run("gt", ["convoy", "create", name, issueId]);
-
-  // Try to parse convoy ID from JSON output
-  try {
-    const parsed = JSON.parse(stdout);
-    const id = parsed?.id ?? parsed?.convoy_id;
-    if (id) return id;
-  } catch {
-    // Fall back to regex extraction
-  }
-
-  // Look for hq-* pattern in output
-  const match = stdout.match(/\b(hq-[a-zA-Z0-9._-]+)\b/);
-  if (match) return match[1];
-
-  throw new Error(`Failed to parse convoy ID from output: ${stdout}`);
-}
-
-/**
  * Sling work onto a polecat in the target rig.
+ * gt sling auto-creates a convoy to track the issue.
+ *
+ * Uses --merge=local so the branch stays on the feature branch
+ * and a human must open a PR and review before merging.
  */
 export async function slingWork(issueId: string, rig: string, args?: string): Promise<void> {
-  const cmdArgs = ["sling", issueId, rig];
+  const cmdArgs = ["sling", issueId, rig, "--merge=local"];
   if (args) {
     cmdArgs.push("--args", args);
   }
@@ -120,23 +111,20 @@ export async function slingWork(issueId: string, rig: string, args?: string): Pr
 }
 
 /**
- * Poll convoy status. Returns parsed status object.
+ * Get the current status of an issue from bd show.
  */
-export async function getConvoyStatus(
-  convoyId: string,
-): Promise<{ status: string; members: Array<{ id: string; status: string }> } | null> {
-  const stdout = await tryRun("gt", ["convoy", "status", convoyId, "--json"]);
+export async function getIssueStatus(
+  issueId: string,
+): Promise<{ status: string; assignee?: string } | null> {
+  const stdout = await tryRun("bd", ["show", issueId, "--json"]);
   if (!stdout) return null;
 
   try {
     const parsed = JSON.parse(stdout);
-    const convoy = Array.isArray(parsed) ? parsed[0] : parsed;
+    const bead = Array.isArray(parsed) ? parsed[0] : parsed;
     return {
-      status: convoy?.status ?? "unknown",
-      members: (convoy?.members ?? []).map((m: Record<string, unknown>) => ({
-        id: String(m.id ?? ""),
-        status: String(m.status ?? "unknown"),
-      })),
+      status: bead?.status ?? "unknown",
+      assignee: bead?.assignee,
     };
   } catch {
     return null;
@@ -144,15 +132,15 @@ export async function getConvoyStatus(
 }
 
 /**
- * Check if a convoy has landed (all tracked issues closed).
+ * Check if an issue status indicates completion.
  */
-function isLanded(status: string): boolean {
+function isComplete(status: string): boolean {
   const s = status.toLowerCase();
-  return s === "landed" || s === "closed" || s === "complete" || s === "done";
+  return s === "closed" || s === "done" || s === "complete" || s === "merged";
 }
 
 /**
- * Check if a convoy has failed.
+ * Check if an issue status indicates failure.
  */
 function isFailed(status: string): boolean {
   const s = status.toLowerCase();
@@ -161,13 +149,42 @@ function isFailed(status: string): boolean {
 
 /**
  * Try to find a PR URL associated with the issue.
+ *
+ * Strategy:
+ *   1. Check bd show output for a GitHub PR URL
+ *   2. Search GitHub for a PR from the polecat branch pattern
  */
 export async function findPrUrl(issueId: string): Promise<string | null> {
+  // 1. Check bd show for embedded PR URL
   const bdOut = await tryRun("bd", ["show", issueId, "--json"]);
   if (bdOut) {
     const match = bdOut.match(/https:\/\/github\.com\/[^\s"]+\/pull\/\d+/);
     if (match) return match[0];
   }
+
+  // 2. Search for PR from polecat branch pattern (polecat/*/<issueId>@*)
+  const ghOut = await tryRun("gh", [
+    "pr",
+    "list",
+    "--state",
+    "all",
+    "--search",
+    issueId,
+    "--json",
+    "url,headRefName",
+    "--limit",
+    "5",
+  ]);
+  if (ghOut) {
+    try {
+      const prs = JSON.parse(ghOut);
+      const match = prs.find((pr: { headRefName?: string }) => pr.headRefName?.includes(issueId));
+      if (match?.url) return match.url;
+    } catch {
+      // ignore parse errors
+    }
+  }
+
   return null;
 }
 
@@ -179,10 +196,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Dispatch a task through the convoy pipeline.
+ * Dispatch a task through the sling pipeline.
  *
- * Creates an issue, wraps it in a convoy, slings to a polecat,
- * and polls until the convoy lands or times out.
+ * Creates an issue, slings it to a polecat (which auto-creates a convoy),
+ * and polls the issue status until closed/failed or timeout.
  */
 export async function dispatchConvoy(
   options: ConvoyDispatchOptions,
@@ -192,63 +209,46 @@ export async function dispatchConvoy(
   // 1. Create issue
   const issueId = await createIssue(`Discord: ${task} (rig: ${rig})`);
 
-  // 2. Create convoy
-  let convoyId: string;
-  try {
-    convoyId = await createConvoy(issueId, task);
-  } catch (err) {
-    return {
-      success: false,
-      issueId,
-      convoyId: "",
-      summary: "Failed to create convoy",
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  // 3. Sling work to polecat
+  // 2. Sling work to polecat (auto-creates convoy)
   try {
     await slingWork(issueId, rig, args);
   } catch (err) {
     return {
       success: false,
       issueId,
-      convoyId,
       summary: "Failed to sling work",
       error: err instanceof Error ? err.message : String(err),
     };
   }
 
-  // 4. Poll convoy status
+  // 3. Poll issue status
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
     await sleep(pollIntervalMs);
 
     const elapsed = Date.now() - startTime;
-    const status = await getConvoyStatus(convoyId);
+    const issue = await getIssueStatus(issueId);
 
-    if (status) {
-      onPoll?.({ convoyId, status: status.status, elapsed });
+    if (issue) {
+      onPoll?.({ issueId, status: issue.status, elapsed });
 
-      if (isLanded(status.status)) {
+      if (isComplete(issue.status)) {
         const prUrl = (await findPrUrl(issueId)) ?? undefined;
         return {
           success: true,
           issueId,
-          convoyId,
           prUrl,
-          summary: `Convoy ${convoyId} landed successfully`,
+          summary: `Issue ${issueId} completed`,
         };
       }
 
-      if (isFailed(status.status)) {
+      if (isFailed(issue.status)) {
         return {
           success: false,
           issueId,
-          convoyId,
-          summary: `Convoy ${convoyId} failed`,
-          error: `Status: ${status.status}`,
+          summary: `Issue ${issueId} failed`,
+          error: `Status: ${issue.status}`,
         };
       }
     }
@@ -259,9 +259,8 @@ export async function dispatchConvoy(
   return {
     success: false,
     issueId,
-    convoyId,
     prUrl,
-    summary: `Convoy ${convoyId} timed out after ${Math.round(timeoutMs / 1000)}s`,
-    error: "Timeout waiting for convoy to land",
+    summary: `Issue ${issueId} timed out after ${Math.round(timeoutMs / 1000)}s`,
+    error: "Timeout waiting for issue to close",
   };
 }

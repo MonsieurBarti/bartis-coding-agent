@@ -4,12 +4,7 @@ import {
   EmbedBuilder,
   SlashCommandBuilder,
 } from "discord.js";
-import {
-  createIssue as convoyCreateIssue,
-  createConvoy,
-  findPrUrl,
-  slingWork,
-} from "../dispatch/convoy";
+import { createIssue, findPrUrl, slingWork } from "../dispatch/convoy";
 import { getProject, loadProjectRegistry, type ProjectRegistry } from "../project";
 import { buildStatusEmbed } from "../status/embed";
 
@@ -38,7 +33,13 @@ export const workCommand = new SlashCommandBuilder()
       .setAutocomplete(true),
   )
   .addStringOption((opt) =>
-    opt.setName("description").setDescription("What needs to be done").setRequired(true),
+    opt.setName("title").setDescription("Short title for the task").setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("description")
+      .setDescription("Detailed description of what needs to be done")
+      .setRequired(false),
   );
 
 let registryCache: { registry: ProjectRegistry; loadedAt: number } | null = null;
@@ -73,22 +74,6 @@ export async function handleWorkAutocomplete(interaction: AutocompleteInteractio
   }
 }
 
-async function createIssueForProject(
-  type: string,
-  description: string,
-  projectName: string,
-): Promise<string> {
-  const bdType = type === "bugfix" ? "bug" : type === "feature" ? "feature" : "task";
-  const title = `[${projectName}] ${description}`;
-  return convoyCreateIssue(title, bdType);
-}
-
-async function createConvoyAndSling(issueId: string, projectName: string): Promise<string> {
-  const convoyId = await createConvoy(issueId, projectName);
-  await slingWork(issueId, projectName);
-  return convoyId;
-}
-
 function statusEmbedToDiscord(embed: {
   title: string;
   description?: string;
@@ -114,6 +99,8 @@ async function pollForCompletion(
 ): Promise<void> {
   const MAX_POLL_MS = 30 * 60 * 1000; // 30 minutes
   const POLL_INTERVAL_MS = 15_000;
+  const PR_RETRY_DELAY_MS = 10_000;
+  const PR_MAX_RETRIES = 6; // up to 60s of retries
 
   const deadline = Date.now() + MAX_POLL_MS;
   while (Date.now() < deadline) {
@@ -127,12 +114,18 @@ async function pollForCompletion(
       // Check if pipeline is done
       const stage = embed.fields.find((f) => f.name === "Stage")?.value?.toLowerCase();
       if (stage?.includes("complete") || stage?.includes("failed")) {
-        // Try to find PR URL on completion
         if (stage?.includes("complete")) {
-          const prUrl = await findPrUrl(issueId);
-          if (prUrl) {
-            discordEmbed.addFields({ name: "Pull Request", value: prUrl });
-            await reply.edit({ embeds: [discordEmbed] });
+          // Retry PR lookup — the polecat may still be pushing/creating the PR
+          for (let attempt = 0; attempt < PR_MAX_RETRIES; attempt++) {
+            const prUrl = await findPrUrl(issueId);
+            if (prUrl) {
+              discordEmbed.addFields({ name: "Pull Request", value: prUrl });
+              await reply.edit({ embeds: [discordEmbed] });
+              break;
+            }
+            if (attempt < PR_MAX_RETRIES - 1) {
+              await new Promise((r) => setTimeout(r, PR_RETRY_DELAY_MS));
+            }
           }
         }
         return;
@@ -146,12 +139,12 @@ async function pollForCompletion(
 export async function handleWorkCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const type = interaction.options.getString("type", true);
   const projectName = interaction.options.getString("project", true);
-  const description = interaction.options.getString("description", true);
+  const title = interaction.options.getString("title", true);
+  const description = interaction.options.getString("description") ?? undefined;
 
   // Validate project exists
-  let registry: ProjectRegistry;
   try {
-    registry = await getRegistry();
+    const registry = await getRegistry();
     getProject(registry, projectName);
   } catch {
     await interaction.reply({
@@ -167,10 +160,12 @@ export async function handleWorkCommand(interaction: ChatInputCommandInteraction
 
   try {
     // 1. Create bd issue
-    const issueId = await createIssueForProject(type, description, projectName);
+    const bdType = type === "bugfix" ? "bug" : type === "feature" ? "feature" : "task";
+    const issueTitle = `[${projectName}] ${title}`;
+    const issueId = await createIssue(issueTitle, bdType, description);
 
-    // 2. Create convoy and sling to polecat
-    await createConvoyAndSling(issueId, projectName);
+    // 2. Sling to polecat — gt sling auto-creates a convoy
+    await slingWork(issueId, projectName);
 
     // 3. Build initial status embed and reply
     const embed = await buildStatusEmbed(issueId, { startedAt });

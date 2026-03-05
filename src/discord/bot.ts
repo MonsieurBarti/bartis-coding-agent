@@ -1,15 +1,15 @@
-import { Client, Events, GatewayIntentBits, type Message } from "discord.js";
+import { Client, Events, GatewayIntentBits, type Message, REST, Routes } from "discord.js";
 import { type ConvoyDispatchResult, dispatchConvoy } from "../dispatch/convoy.ts";
+import { handleWorkAutocomplete, handleWorkCommand, workCommand } from "./commands.ts";
 import { type DiscordConfig, loadConfig } from "./config.ts";
 import { parseMessage } from "./parser.ts";
 
 /**
- * Run the full convoy pipeline for a Discord request:
+ * Run the full dispatch pipeline for a Discord mention request:
  * 1. Create bd issue
- * 2. Create convoy to track it
- * 3. Sling work to a polecat
- * 4. Poll convoy status until landed/failed/timeout
- * 5. Return result with PR link
+ * 2. Sling work to a polecat (auto-creates convoy)
+ * 3. Poll issue status until closed/failed/timeout
+ * 4. Return result with PR link
  */
 async function handleTask(
   task: string,
@@ -22,7 +22,7 @@ async function handleTask(
     args: task,
     onPoll: (status) => {
       const secs = Math.round(status.elapsed / 1000);
-      onStatus?.(`Convoy \`${status.convoyId}\`: ${status.status} (${secs}s elapsed)`);
+      onStatus?.(`Issue \`${status.issueId}\`: ${status.status} (${secs}s elapsed)`);
     },
   });
 }
@@ -30,9 +30,9 @@ async function handleTask(
 /**
  * Start the Discord bot.
  *
- * Listens for messages mentioning the bot in configured channels,
- * parses them for task + repo, dispatches the pipeline, and replies
- * with the result.
+ * Listens for:
+ * - /work slash command (structured input with project autocomplete)
+ * - @bot mentions (freeform task + repo)
  */
 export async function startBot(config?: DiscordConfig): Promise<Client> {
   const cfg = config ?? loadConfig();
@@ -47,8 +47,27 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
 
   const channelSet = new Set(cfg.channelIds);
 
-  client.once(Events.ClientReady, (readyClient) => {
+  client.once(Events.ClientReady, async (readyClient) => {
     console.log(`Discord bot ready as ${readyClient.user.tag}`);
+
+    // Register slash commands
+    const rest = new REST().setToken(cfg.token);
+    try {
+      await rest.put(Routes.applicationCommands(readyClient.user.id), {
+        body: [workCommand.toJSON()],
+      });
+      console.log("Slash commands registered");
+    } catch (err) {
+      console.error("Failed to register slash commands:", err);
+    }
+  });
+
+  client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isAutocomplete()) {
+      await handleWorkAutocomplete(interaction);
+    } else if (interaction.isChatInputCommand() && interaction.commandName === "work") {
+      await handleWorkCommand(interaction);
+    }
   });
 
   client.on(Events.MessageCreate, async (message: Message) => {
@@ -75,7 +94,6 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
 
     try {
       const result = await handleTask(parsed.task, parsed.repo, async (statusMsg) => {
-        // Send periodic status updates to the thread
         try {
           await message.reply(statusMsg);
         } catch {
@@ -87,12 +105,10 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
         const prLine = result.prUrl
           ? `PR: ${result.prUrl}`
           : "No PR URL found (check the repo for recent PRs)";
-        await message.reply(
-          `Done! Issue: \`${result.issueId}\` | Convoy: \`${result.convoyId}\`\n${prLine}`,
-        );
+        await message.reply(`Done! Issue: \`${result.issueId}\`\n${prLine}`);
       } else {
         await message.reply(
-          `Pipeline failed for issue \`${result.issueId}\` (convoy \`${result.convoyId}\`):\n` +
+          `Pipeline failed for issue \`${result.issueId}\`:\n` +
             `${result.summary}\n\`\`\`\n${result.error}\n\`\`\``,
         );
       }

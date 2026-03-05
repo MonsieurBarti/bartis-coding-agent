@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createConvoy, createIssue, dispatchConvoy, getConvoyStatus, slingWork } from "../convoy";
+import { createIssue, dispatchConvoy, getIssueStatus, slingWork } from "../convoy";
 
 // Mock Bun.spawn for CLI calls
 const originalSpawn = Bun.spawn;
@@ -76,6 +76,24 @@ describe("createIssue", () => {
     }
   });
 
+  test("passes description when provided", async () => {
+    const { calls, restore } = mockSpawn([{ stdout: JSON.stringify({ id: "bca-desc" }) }]);
+    try {
+      await createIssue("Fix crash", "bug", "Detailed description here");
+      expect(calls[0]).toEqual([
+        "bd",
+        "create",
+        "--json",
+        "-t",
+        "bug",
+        "--description=Detailed description here",
+        "Fix crash",
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
   test("throws on bd create failure", async () => {
     const { restore } = mockSpawn([{ stdout: "", stderr: "database error", exitCode: 1 }]);
     try {
@@ -93,50 +111,12 @@ describe("createIssue", () => {
   });
 });
 
-describe("createConvoy", () => {
-  test("extracts convoy ID from hq-* pattern", async () => {
-    const { restore } = mockSpawn([{ stdout: "Created convoy hq-convoy123 tracking 1 issue" }]);
-    try {
-      const id = await createConvoy("bca-abc", "Fix login");
-      expect(id).toBe("hq-convoy123");
-    } finally {
-      restore();
-    }
-  });
-
-  test("extracts convoy ID from JSON response", async () => {
-    const { restore } = mockSpawn([{ stdout: JSON.stringify({ id: "hq-json456" }) }]);
-    try {
-      const id = await createConvoy("bca-abc", "Fix login");
-      expect(id).toBe("hq-json456");
-    } finally {
-      restore();
-    }
-  });
-
-  test("throws when no convoy ID found", async () => {
-    const { restore } = mockSpawn([{ stdout: "Something happened but no ID" }]);
-    try {
-      let caught: Error | null = null;
-      try {
-        await createConvoy("bca-abc", "Task");
-      } catch (err) {
-        caught = err as Error;
-      }
-      expect(caught).not.toBeNull();
-      expect(caught!.message).toContain("Failed to parse convoy ID");
-    } finally {
-      restore();
-    }
-  });
-});
-
 describe("slingWork", () => {
   test("calls gt sling with issue and rig", async () => {
     const { calls, restore } = mockSpawn([{ stdout: "Slung!" }]);
     try {
       await slingWork("bca-abc", "myrig");
-      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig"]);
+      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig", "--merge=local"]);
     } finally {
       restore();
     }
@@ -146,28 +126,37 @@ describe("slingWork", () => {
     const { calls, restore } = mockSpawn([{ stdout: "Slung!" }]);
     try {
       await slingWork("bca-abc", "myrig", "focus on tests");
-      expect(calls[0]).toEqual(["gt", "sling", "bca-abc", "myrig", "--args", "focus on tests"]);
+      expect(calls[0]).toEqual([
+        "gt",
+        "sling",
+        "bca-abc",
+        "myrig",
+        "--merge=local",
+        "--args",
+        "focus on tests",
+      ]);
     } finally {
       restore();
     }
   });
 });
 
-describe("getConvoyStatus", () => {
-  test("parses convoy status JSON", async () => {
+describe("getIssueStatus", () => {
+  test("parses issue status from bd show", async () => {
     const { restore } = mockSpawn([
       {
         stdout: JSON.stringify({
-          status: "active",
-          members: [{ id: "bca-abc", status: "in_progress" }],
+          id: "bca-abc",
+          status: "hooked",
+          assignee: "bca/polecats/immortan",
         }),
       },
     ]);
     try {
-      const status = await getConvoyStatus("hq-123");
+      const status = await getIssueStatus("bca-abc");
       expect(status).toEqual({
-        status: "active",
-        members: [{ id: "bca-abc", status: "in_progress" }],
+        status: "hooked",
+        assignee: "bca/polecats/immortan",
       });
     } finally {
       restore();
@@ -177,7 +166,7 @@ describe("getConvoyStatus", () => {
   test("returns null on failure", async () => {
     const { restore } = mockSpawn([{ stdout: "", exitCode: 1 }]);
     try {
-      const status = await getConvoyStatus("hq-nonexistent");
+      const status = await getIssueStatus("bca-nonexistent");
       expect(status).toBeNull();
     } finally {
       restore();
@@ -186,22 +175,15 @@ describe("getConvoyStatus", () => {
 });
 
 describe("dispatchConvoy", () => {
-  test("returns success when convoy lands", async () => {
+  test("returns success when issue closes", async () => {
     const { restore } = mockSpawn([
       // 1. createIssue -> bd create
       { stdout: JSON.stringify({ id: "bca-issue1" }) },
-      // 2. createConvoy -> gt convoy create
-      { stdout: "Created convoy hq-conv1 tracking 1 issue" },
-      // 3. slingWork -> gt sling
+      // 2. slingWork -> gt sling
       { stdout: "Slung bca-issue1 to myrig" },
-      // 4. First poll -> gt convoy status
-      {
-        stdout: JSON.stringify({
-          status: "landed",
-          members: [{ id: "bca-issue1", status: "closed" }],
-        }),
-      },
-      // 5. findPrUrl -> bd show
+      // 3. First poll -> bd show (closed)
+      { stdout: JSON.stringify({ id: "bca-issue1", status: "closed" }) },
+      // 4. findPrUrl -> bd show
       {
         stdout: JSON.stringify({
           id: "bca-issue1",
@@ -219,23 +201,20 @@ describe("dispatchConvoy", () => {
       });
       expect(result.success).toBe(true);
       expect(result.issueId).toBe("bca-issue1");
-      expect(result.convoyId).toBe("hq-conv1");
       expect(result.prUrl).toBe("https://github.com/org/repo/pull/42");
     } finally {
       restore();
     }
   });
 
-  test("returns failure when convoy fails", async () => {
+  test("returns failure when issue fails", async () => {
     const { restore } = mockSpawn([
       // createIssue
       { stdout: JSON.stringify({ id: "bca-issue2" }) },
-      // createConvoy
-      { stdout: "Created convoy hq-conv2" },
       // slingWork
       { stdout: "Slung" },
       // poll -> failed
-      { stdout: JSON.stringify({ status: "failed", members: [] }) },
+      { stdout: JSON.stringify({ id: "bca-issue2", status: "failed" }) },
     ]);
 
     try {
@@ -246,7 +225,6 @@ describe("dispatchConvoy", () => {
         timeoutMs: 5000,
       });
       expect(result.success).toBe(false);
-      expect(result.convoyId).toBe("hq-conv2");
       expect(result.error).toContain("failed");
     } finally {
       restore();
@@ -257,8 +235,6 @@ describe("dispatchConvoy", () => {
     const { restore } = mockSpawn([
       // createIssue
       { stdout: JSON.stringify({ id: "bca-issue3" }) },
-      // createConvoy
-      { stdout: "Created convoy hq-conv3" },
       // slingWork -> fails
       { stdout: "", stderr: "No available polecats", exitCode: 1 },
     ]);

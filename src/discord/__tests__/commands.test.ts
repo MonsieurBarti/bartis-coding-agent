@@ -9,11 +9,10 @@ describe("workCommand", () => {
     expect(json.description).toBe("Dispatch a task to a polecat worker");
   });
 
-  test("has three required options", () => {
-    expect(json.options).toHaveLength(3);
-    for (const opt of json.options!) {
-      expect(opt.required).toBe(true);
-    }
+  test("has four options (three required, one optional)", () => {
+    expect(json.options).toHaveLength(4);
+    const required = json.options!.filter((o) => o.required);
+    expect(required).toHaveLength(3);
   });
 
   test("type option has four choices", () => {
@@ -30,10 +29,18 @@ describe("workCommand", () => {
     expect((projectOpt as any).autocomplete).toBe(true);
   });
 
-  test("description option is a string", () => {
+  test("title option is a required string", () => {
+    const titleOpt = json.options!.find((o) => o.name === "title");
+    expect(titleOpt).toBeDefined();
+    // ApplicationCommandOptionType.String = 3
+    expect(titleOpt!.type).toBe(3);
+    expect(titleOpt!.required).toBe(true);
+  });
+
+  test("description option is an optional string", () => {
     const descOpt = json.options!.find((o) => o.name === "description");
     expect(descOpt).toBeDefined();
-    // ApplicationCommandOptionType.String = 3
     expect(descOpt!.type).toBe(3);
+    expect(descOpt!.required).toBeFalsy();
   });
 });

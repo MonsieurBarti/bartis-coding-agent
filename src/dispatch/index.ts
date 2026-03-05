@@ -2,11 +2,10 @@ export {
   type ConvoyDispatchOptions,
   type ConvoyDispatchResult,
   type ConvoyPollStatus,
-  createConvoy,
   createIssue,
   dispatchConvoy,
   findPrUrl,
-  getConvoyStatus,
+  getIssueStatus,
   slingWork,
 } from "./convoy";
 export { buildDefaultBlueprint } from "./default-blueprint";
