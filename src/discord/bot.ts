@@ -2,42 +2,57 @@ import {
   Client,
   Events,
   GatewayIntentBits,
-  REST,
-  Routes,
+  type Message,
 } from "discord.js";
 import { loadConfig, type DiscordConfig } from "./config.ts";
+import { parseMessage } from "./parser.ts";
 import {
-  workCommand,
-  handleWorkCommand,
-  handleWorkAutocomplete,
-} from "./commands.ts";
+  dispatchConvoy,
+  type ConvoyDispatchResult,
+} from "../dispatch/convoy.ts";
 
 /**
- * Register slash commands with Discord.
+ * Run the full convoy pipeline for a Discord request:
+ * 1. Create bd issue
+ * 2. Create convoy to track it
+ * 3. Sling work to a polecat
+ * 4. Poll convoy status until landed/failed/timeout
+ * 5. Return result with PR link
  */
-async function registerCommands(config: DiscordConfig): Promise<void> {
-  const rest = new REST({ version: "10" }).setToken(config.token);
-  await rest.put(Routes.applicationCommands(config.appId), {
-    body: [workCommand.toJSON()],
+async function handleTask(
+  task: string,
+  repo: string,
+  onStatus?: (msg: string) => void,
+): Promise<ConvoyDispatchResult> {
+  return dispatchConvoy({
+    task,
+    rig: repo,
+    args: task,
+    onPoll: (status) => {
+      const secs = Math.round(status.elapsed / 1000);
+      onStatus?.(
+        `Convoy \`${status.convoyId}\`: ${status.status} (${secs}s elapsed)`,
+      );
+    },
   });
-  console.log("Registered slash commands");
 }
 
 /**
  * Start the Discord bot.
  *
- * Registers the /work slash command and handles interactions
- * in configured channels. On submit: creates bd issue, dispatches
- * convoy, and replies with live status updates.
+ * Listens for messages mentioning the bot in configured channels,
+ * parses them for task + repo, dispatches the pipeline, and replies
+ * with the result.
  */
 export async function startBot(config?: DiscordConfig): Promise<Client> {
   const cfg = config ?? loadConfig();
 
-  // Register slash commands before connecting
-  await registerCommands(cfg);
-
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
   });
 
   const channelSet = new Set(cfg.channelIds);
@@ -46,22 +61,54 @@ export async function startBot(config?: DiscordConfig): Promise<Client> {
     console.log(`Discord bot ready as ${readyClient.user.tag}`);
   });
 
-  client.on(Events.InteractionCreate, async (interaction) => {
-    // Only respond in configured channels
-    if (interaction.channelId && !channelSet.has(interaction.channelId)) return;
+  client.on(Events.MessageCreate, async (message: Message) => {
+    // Ignore bot messages
+    if (message.author.bot) return;
 
-    if (interaction.isAutocomplete()) {
-      if (interaction.commandName === "work") {
-        await handleWorkAutocomplete(interaction);
-      }
+    // Only respond in configured channels
+    if (!channelSet.has(message.channelId)) return;
+
+    // Only respond when mentioned
+    if (!message.mentions.has(client.user!.id)) return;
+
+    const parsed = parseMessage(message.content, client.user!.id);
+    if (!parsed) {
+      await message.reply(
+        "Usage: `@bot <repo-path> <task description>`\n" +
+        "Example: `@bot /path/to/project Fix the login page styling`",
+      );
       return;
     }
 
-    if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "work") {
-        await handleWorkCommand(interaction);
+    // Acknowledge receipt
+    await message.reply(`Working on it — task: "${parsed.task}" in \`${parsed.repo}\``);
+
+    try {
+      const result = await handleTask(parsed.task, parsed.repo, async (statusMsg) => {
+        // Send periodic status updates to the thread
+        try {
+          await message.reply(statusMsg);
+        } catch {
+          // Ignore reply failures during polling
+        }
+      });
+
+      if (result.success) {
+        const prLine = result.prUrl
+          ? `PR: ${result.prUrl}`
+          : "No PR URL found (check the repo for recent PRs)";
+        await message.reply(
+          `Done! Issue: \`${result.issueId}\` | Convoy: \`${result.convoyId}\`\n${prLine}`,
+        );
+      } else {
+        await message.reply(
+          `Pipeline failed for issue \`${result.issueId}\` (convoy \`${result.convoyId}\`):\n` +
+          `${result.summary}\n\`\`\`\n${result.error}\n\`\`\``,
+        );
       }
-      return;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await message.reply(`Error: ${errorMsg}`);
     }
   });
 
